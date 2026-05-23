@@ -1,24 +1,40 @@
-# Fixture: noise_resistance
-# Purpose: Verify /recall returns empty context for topics never discussed.
-# Filled in: Stage 2 (cold-session behavior is already correct)
-
 name: noise_resistance
-description: Verify /recall returns empty context for topics never discussed.
+description: "Verify /recall returns empty context for topics never discussed."
 
-conversations: []
-#  - session_id: s1
-#    user_id: u1
-#    timestamp: 2025-03-10T10:00:00Z
-#    messages:
-#      - role: user
-#        content: "I love hiking in the mountains"
-#      - role: assistant
-#        content: "That sounds wonderful!"
+conversations:
+  - session_id: nr-s1
+    user_id: nr-u1
+    timestamp: 2025-03-10T10:00:00Z
+    messages:
+      - role: user
+        content: "The weather has been really nice lately. Had a great lunch today."
+      - role: assistant
+        content: "Glad to hear it! What did you have?"
+      - role: user
+        content: "Just a sandwich. Nothing special. Anyway, how was your day?"
+      - role: assistant
+        content: "Pretty quiet on my end!"
 
-probes: []
-#  - query: "What is the user's favorite programming language?"
-#    session_id: probe-session
-#    user_id: u1
-#    max_tokens: 512
-#    expected_facts: []
-#    not_expected_facts: ["Python", "Go", "JavaScript"]
+probes:
+  - query: "Where does the user work?"
+    session_id: nr-probe
+    user_id: nr-u1
+    max_tokens: 512
+    expected_facts: []
+    not_expected_facts:
+      - "Stripe"
+      - "Notion"
+      - "Google"
+      - "engineer"
+      - "manager"
+
+  - query: "What city does the user live in?"
+    session_id: nr-probe
+    user_id: nr-u1
+    max_tokens: 512
+    expected_facts: []
+    not_expected_facts:
+      - "Berlin"
+      - "Amsterdam"
+      - "London"
+      - "New York"

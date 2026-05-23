@@ -13,13 +13,15 @@ import (
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"memory-service/internal/extraction"
 	"memory-service/internal/storage"
 )
 
 // NewTurnsHandler handles POST /turns.
-func NewTurnsHandler(pool *pgxpool.Pool) http.HandlerFunc {
+// ext may be nil when OPENAI_API_KEY is not set — turns are saved without extraction.
+func NewTurnsHandler(pool *pgxpool.Pool, ext *extraction.Extractor) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(r.Context(), 50*time.Second)
+		ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
 		defer cancel()
 		reqID := chimiddleware.GetReqID(r.Context())
 
@@ -43,6 +45,7 @@ func NewTurnsHandler(pool *pgxpool.Pool) http.HandlerFunc {
 			metadata = json.RawMessage("{}")
 		}
 
+		// Step 2: Save raw turn in its own transaction.
 		tx, err := pool.Begin(ctx)
 		if err != nil {
 			slog.Error("begin transaction", "error", err, "request_id", reqID)
@@ -75,13 +78,93 @@ func NewTurnsHandler(pool *pgxpool.Pool) http.HandlerFunc {
 			userID = *req.UserID
 		}
 		slog.Info("turn inserted",
-			"turn_id", turnID,
+			"turn_id", turnID.String(),
 			"session_id", req.SessionID,
 			"user_id", userID,
 			"message_count", len(req.Messages),
 		)
 
-		writeJSON(w, http.StatusCreated, buildTurnResponse(turnID))
+		// Step 3: Extraction — skip if no user or extractor.
+		if req.UserID == nil {
+			writeJSON(w, http.StatusCreated, buildTurnResponse(turnID.String()))
+			return
+		}
+		if ext == nil {
+			slog.Warn("extractor not configured, skipping extraction", "request_id", reqID)
+			writeJSON(w, http.StatusCreated, buildTurnResponse(turnID.String()))
+			return
+		}
+
+		turnMsgs := make([]storage.TurnMessage, len(req.Messages))
+		for i, m := range req.Messages {
+			turnMsgs[i] = storage.TurnMessage{Role: m.Role, Content: m.Content}
+		}
+
+		llmCtx, llmCancel := context.WithTimeout(ctx, 30*time.Second)
+		defer llmCancel()
+
+		candidates, err := ext.Extract(llmCtx, pool, *req.UserID, turnMsgs)
+		if err != nil {
+			slog.Warn("extraction failed", "error", err, "request_id", reqID)
+			writeJSON(w, http.StatusCreated, buildTurnResponse(turnID.String()))
+			return
+		}
+		if len(candidates) == 0 {
+			slog.Info("no candidates extracted", "request_id", reqID)
+			writeJSON(w, http.StatusCreated, buildTurnResponse(turnID.String()))
+			return
+		}
+
+		// Step 4: Embed each candidate and persist in a second transaction.
+		tx2, err := pool.Begin(ctx)
+		if err != nil {
+			slog.Error("begin memory transaction", "error", err, "request_id", reqID)
+			writeJSON(w, http.StatusCreated, buildTurnResponse(turnID.String()))
+			return
+		}
+		defer tx2.Rollback(ctx) //nolint:errcheck
+
+		inserted := 0
+		for _, c := range candidates {
+			embCtx, embCancel := context.WithTimeout(ctx, 10*time.Second)
+			embedding, embErr := ext.Embed(embCtx, c.Value)
+			embCancel()
+			if embErr != nil {
+				slog.Warn("embed candidate failed, storing without vector",
+					"error", embErr, "request_id", reqID)
+				embedding = nil
+			}
+
+			_, insErr := storage.InsertMemory(ctx, tx2, storage.InsertMemoryParams{
+				UserID:        *req.UserID,
+				Type:          c.Type,
+				Key:           c.Key,
+				Value:         c.Value,
+				Evidence:      c.Evidence,
+				Confidence:    c.Confidence,
+				Entities:      marshalEntities(c.Entities),
+				Embedding:     embedding,
+				SourceSession: &req.SessionID,
+				SourceTurn:    &turnID,
+			})
+			if insErr != nil {
+				slog.Error("insert memory failed", "error", insErr, "request_id", reqID)
+			} else {
+				inserted++
+			}
+		}
+
+		if err := tx2.Commit(ctx); err != nil {
+			slog.Error("commit memory transaction", "error", err, "request_id", reqID)
+		} else {
+			slog.Info("memories inserted",
+				"count", inserted,
+				"turn_id", turnID.String(),
+				"user_id", *req.UserID,
+			)
+		}
+
+		writeJSON(w, http.StatusCreated, buildTurnResponse(turnID.String()))
 	}
 }
 
@@ -128,4 +211,15 @@ func sanitizeTurnMessages(msgs []Message) {
 			msgs[i].Name = &name
 		}
 	}
+}
+
+func marshalEntities(entities []string) json.RawMessage {
+	if len(entities) == 0 {
+		return json.RawMessage("[]")
+	}
+	b, err := json.Marshal(entities)
+	if err != nil {
+		return json.RawMessage("[]")
+	}
+	return json.RawMessage(b)
 }

@@ -13,6 +13,9 @@ import (
 
 	"memory-service/internal/api"
 	"memory-service/internal/config"
+	"memory-service/internal/extraction"
+	"memory-service/internal/llm"
+	"memory-service/internal/retrieval"
 	"memory-service/internal/storage"
 )
 
@@ -28,8 +31,11 @@ func main() {
 
 	slog.Info("config loaded", "port", cfg.Port, "log_level", cfg.LogLevel)
 
-	if cfg.OpenAIAPIKey == "" {
-		slog.Warn("OPENAI_API_KEY not set; LLM-dependent endpoints will return errors when called")
+	// LLM client — nil when OPENAI_API_KEY is not set (graceful degradation).
+	llmClient := llm.NewClient(cfg)
+	if llmClient == nil {
+		slog.Warn("openai client not configured",
+			"note", "POST /turns will save turns without extraction; /recall will return empty context")
 	}
 
 	if cfg.CohereAPIKey != "" {
@@ -63,14 +69,20 @@ func main() {
 		os.Exit(1)
 	}
 
-	router := api.NewRouter(pool, cfg)
+	// Extractor wraps the LLM client for memory extraction.
+	ext := extraction.New(llmClient)
+
+	// Retriever — Stage 3: vanilla cosine similarity only.
+	ret := retrieval.NewSemanticRetriever(pool, llmClient)
+
+	handler := api.NewRouter(pool, cfg, ext, ret)
 
 	addr := fmt.Sprintf(":%s", cfg.Port)
 	server := &http.Server{
 		Addr:         addr,
-		Handler:      router,
+		Handler:      handler,
 		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 65 * time.Second,
+		WriteTimeout: 120 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 

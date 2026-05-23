@@ -5,6 +5,20 @@ Entries are in reverse chronological order.
 
 ---
 
+## v1.0.0 — Baseline extraction and semantic retrieval
+
+- LLM extraction on POST /turns via gpt-4o-mini with Structured Output (Strict mode)
+- Existing canonical keys passed as hints to stabilise vocabulary across turns
+- Confidence computed from evidence field (explicit → 0.95, implicit → 0.70)
+- Tool-role messages used as context only; facts not attributed to tool outputs
+- Cosine top-k retrieval via pgvector ORDER BY <=> LIMIT; no FTS, graph, or reranker
+- Context assembled as plain key: value concatenation
+- All extracted facts INSERT unconditionally (no consolidation check)
+- Graceful degradation when OPENAI_API_KEY is absent: turn saved, /recall returns empty
+- Fixture baseline: OVERALL 5/6 expected facts (83%), 1 not-expected violation
+
+---
+
 ## v0.2.0 — HTTP contract surface and storage layer
 
 Implements the six endpoints: POST /turns, POST /recall,

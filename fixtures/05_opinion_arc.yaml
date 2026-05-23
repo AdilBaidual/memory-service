@@ -1,32 +1,48 @@
-# Fixture: opinion_arc
-# Purpose: Verify opinion_view representation captures evolving views over time.
-# Filled in: Stage 7 (opinion handling iteration)
-
 name: opinion_arc
-description: Verify opinion_view representation captures evolving views over time.
+description: "Verify opinion_view representation captures evolving views over time."
 
-conversations: []
-#  - session_id: s1
-#    user_id: u1
-#    timestamp: 2025-03-10T10:00:00Z
-#    messages:
-#      - role: user
-#        content: "I think TypeScript is too verbose and I prefer plain JavaScript"
-#      - role: assistant
-#        content: "Many developers share that view"
-#  - session_id: s2
-#    user_id: u1
-#    timestamp: 2025-04-01T10:00:00Z
-#    messages:
-#      - role: user
-#        content: "I've changed my mind — TypeScript's type safety has saved me so many bugs"
-#      - role: assistant
-#        content: "Type safety can really pay off in larger projects"
+conversations:
+  - session_id: oa-s1
+    user_id: oa-u1
+    timestamp: 2025-01-05T10:00:00Z
+    messages:
+      - role: user
+        content: >
+          Been using TypeScript on a new project and I absolutely love it.
+          The type safety is incredible — catches so many bugs before runtime.
+      - role: assistant
+        content: "TypeScript really does make large codebases more manageable!"
 
-probes: []
-#  - query: "What is the user's opinion on TypeScript?"
-#    session_id: probe-session
-#    user_id: u1
-#    max_tokens: 512
-#    expected_facts: ["type safety", "TypeScript"]
-#    not_expected_facts: ["verbose", "prefer plain JavaScript"]
+  - session_id: oa-s2
+    user_id: oa-u1
+    timestamp: 2025-02-10T10:00:00Z
+    messages:
+      - role: user
+        content: >
+          Ugh, TypeScript generics are really frustrating me today. The type
+          complexity is getting out of hand on this codebase. Sometimes I miss
+          just writing plain JavaScript.
+      - role: assistant
+        content: "Yeah, deeply nested generics can be rough to work with."
+
+  - session_id: oa-s3
+    user_id: oa-u1
+    timestamp: 2025-03-20T10:00:00Z
+    messages:
+      - role: user
+        content: >
+          I've come around to a more pragmatic view on TypeScript. It's great
+          for large projects and team codebases, but for scripting or small
+          personal projects I honestly prefer Python. It's a tool, not a
+          religion.
+      - role: assistant
+        content: "That's a healthy way to think about it."
+
+probes:
+  - query: "What does the user think about TypeScript?"
+    session_id: oa-probe
+    user_id: oa-u1
+    max_tokens: 512
+    expected_facts:
+      - "TypeScript"
+    not_expected_facts: []

@@ -1,32 +1,33 @@
-# Fixture: fact_evolution
-# Purpose: Verify supersedes logic for contradicting facts across sessions.
-# Filled in: Stage 4 (consolidation iteration)
-
 name: fact_evolution
-description: Verify supersedes logic for contradicting facts across sessions.
+description: "Verify supersedes logic for contradicting facts across sessions."
 
-conversations: []
-#  - session_id: s1
-#    user_id: u1
-#    timestamp: 2025-03-10T10:00:00Z
-#    messages:
-#      - role: user
-#        content: "I work at Stripe"
-#      - role: assistant
-#        content: "Great company!"
-#  - session_id: s2
-#    user_id: u1
-#    timestamp: 2025-03-20T10:00:00Z
-#    messages:
-#      - role: user
-#        content: "I just started at Notion last week"
-#      - role: assistant
-#        content: "Congratulations on the new job!"
+conversations:
+  - session_id: fe-s1
+    user_id: fe-u1
+    timestamp: 2025-01-10T10:00:00Z
+    messages:
+      - role: user
+        content: "Just started a new job at Stripe as a backend engineer. Really excited!"
+      - role: assistant
+        content: "Congrats on joining Stripe! How's the onboarding going?"
 
-probes: []
-#  - query: "Where does the user work?"
-#    session_id: probe-session
-#    user_id: u1
-#    max_tokens: 512
-#    expected_facts: ["Notion"]
-#    not_expected_facts: ["Stripe"]
+  - session_id: fe-s2
+    user_id: fe-u1
+    timestamp: 2025-03-15T10:00:00Z
+    messages:
+      - role: user
+        content: >
+          I actually switched jobs last week. Left Stripe — it wasn't the right
+          culture fit — and now I'm at Notion. Much happier.
+      - role: assistant
+        content: "Sounds like a good move. How's Notion treating you?"
+
+probes:
+  - query: "Where does the user currently work?"
+    session_id: fe-probe
+    user_id: fe-u1
+    max_tokens: 512
+    expected_facts:
+      - "Notion"
+    not_expected_facts:
+      - "Stripe"

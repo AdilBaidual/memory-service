@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"memory-service/internal/storage"
@@ -96,7 +97,7 @@ func memoryToView(m storage.Memory) MemoryView {
 		metadata = json.RawMessage("{}")
 	}
 	return MemoryView{
-		ID:            m.ID,
+		ID:            m.ID.String(),
 		Type:          m.Type,
 		Key:           m.Key,
 		Value:         m.Value,
@@ -104,13 +105,21 @@ func memoryToView(m storage.Memory) MemoryView {
 		Evidence:      m.Evidence,
 		Entities:      entities,
 		SourceSession: m.SourceSession,
-		SourceTurn:    m.SourceTurn,
+		SourceTurn:    uuidPtrToStr(m.SourceTurn),
 		ValidFrom:     m.ValidFrom,
 		ValidTo:       m.ValidTo,
 		CreatedAt:     m.CreatedAt,
 		UpdatedAt:     m.UpdatedAt,
-		Supersedes:    m.Supersedes,
+		Supersedes:    uuidPtrToStr(m.Supersedes),
 		Active:        m.Active,
 		Metadata:      metadata,
 	}
+}
+
+func uuidPtrToStr(u *uuid.UUID) *string {
+	if u == nil {
+		return nil
+	}
+	s := u.String()
+	return &s
 }

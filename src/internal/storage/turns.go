@@ -6,11 +6,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/google/uuid"
 )
+
+// TurnMessage is a single message from a turn, used for extraction.
+type TurnMessage struct {
+	Role    string
+	Content string
+}
 
 // Turn represents a stored conversation turn.
 type Turn struct {
-	ID        string
+	ID        uuid.UUID
 	SessionID string
 	UserID    *string
 	Messages  json.RawMessage
@@ -28,21 +36,21 @@ type InsertTurnParams struct {
 	Metadata  json.RawMessage
 }
 
-// InsertTurn writes a turn row and returns the generated UUID as a string.
-func InsertTurn(ctx context.Context, q Querier, p InsertTurnParams) (string, error) {
+// InsertTurn writes a turn row and returns the generated UUID.
+func InsertTurn(ctx context.Context, q Querier, p InsertTurnParams) (uuid.UUID, error) {
 	metadata := p.Metadata
 	if len(metadata) == 0 {
 		metadata = json.RawMessage("{}")
 	}
 
-	var id string
+	var id uuid.UUID
 	err := q.QueryRow(ctx, `
 		INSERT INTO turns (session_id, user_id, messages, timestamp, metadata)
 		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id
 	`, p.SessionID, p.UserID, []byte(p.Messages), p.Timestamp, []byte(metadata)).Scan(&id)
 	if err != nil {
-		return "", fmt.Errorf("insert turn: %w", err)
+		return uuid.UUID{}, fmt.Errorf("insert turn: %w", err)
 	}
 	return id, nil
 }
