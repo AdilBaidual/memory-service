@@ -1,0 +1,28 @@
+# Binaries
+/server
+/memory-service
+*.exe
+
+# Go
+vendor/
+.go-cache/
+
+# Local config
+.env
+.env.local
+
+# Docker volumes (model cache; persisted out of repo)
+/model-cache/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+
+# Logs
+*.log
+
+CLAUDE.md
+.prompts/

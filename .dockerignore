@@ -1,0 +1,14 @@
+.git
+.gitignore
+.env
+.env.local
+.idea
+.vscode
+README.md
+CHANGELOG.md
+docker-compose.yml
+Dockerfile
+model-cache/
+tests/
+fixtures/
+*.md
