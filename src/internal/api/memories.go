@@ -1,0 +1,116 @@
+// Package api contains the HTTP router, handlers, and middleware for the memory service.
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"memory-service/internal/storage"
+)
+
+// NewListUserMemoriesHandler handles GET /users/{user_id}/memories.
+func NewListUserMemoriesHandler(pool *pgxpool.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		defer cancel()
+
+		req, err := parseMemoriesRequest(r)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+
+		mems, err := storage.ListMemoriesByUser(ctx, pool, req.UserID, req.Filters)
+		if err != nil {
+			slog.Error("list memories", "error", err, "user_id", req.UserID)
+			writeError(w, fmt.Errorf("list memories: %w", err))
+			return
+		}
+
+		writeJSON(w, http.StatusOK, buildMemoriesResponse(mems))
+	}
+}
+
+// MemoriesRequest holds the parsed inputs for GET /users/{user_id}/memories.
+type MemoriesRequest struct {
+	UserID  string
+	Filters storage.ListMemoriesFilters
+}
+
+func parseMemoriesRequest(r *http.Request) (*MemoriesRequest, error) {
+	userID := chi.URLParam(r, "user_id")
+	if userID == "" {
+		return nil, &apiError{http.StatusBadRequest, "user_id is required"}
+	}
+
+	q := r.URL.Query()
+	filters := storage.ListMemoriesFilters{}
+
+	if v := q.Get("type"); v != "" {
+		filters.Type = &v
+	}
+	if v := q.Get("active"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, &apiError{http.StatusBadRequest, "invalid active param: must be true or false"}
+		}
+		filters.Active = &b
+	}
+	if v := q.Get("key"); v != "" {
+		filters.Key = &v
+	}
+	if v := q.Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return nil, &apiError{http.StatusBadRequest, "invalid limit param"}
+		}
+		filters.Limit = n
+	}
+
+	return &MemoriesRequest{UserID: userID, Filters: filters}, nil
+}
+
+func buildMemoriesResponse(mems []storage.Memory) MemoriesListResponse {
+	views := make([]MemoryView, len(mems))
+	for i, m := range mems {
+		views[i] = memoryToView(m)
+	}
+	return MemoriesListResponse{Memories: views}
+}
+
+func memoryToView(m storage.Memory) MemoryView {
+	entities := m.Entities
+	if entities == nil {
+		entities = json.RawMessage("[]")
+	}
+	metadata := m.Metadata
+	if metadata == nil {
+		metadata = json.RawMessage("{}")
+	}
+	return MemoryView{
+		ID:            m.ID,
+		Type:          m.Type,
+		Key:           m.Key,
+		Value:         m.Value,
+		Confidence:    m.Confidence,
+		Evidence:      m.Evidence,
+		Entities:      entities,
+		SourceSession: m.SourceSession,
+		SourceTurn:    m.SourceTurn,
+		ValidFrom:     m.ValidFrom,
+		ValidTo:       m.ValidTo,
+		CreatedAt:     m.CreatedAt,
+		UpdatedAt:     m.UpdatedAt,
+		Supersedes:    m.Supersedes,
+		Active:        m.Active,
+		Metadata:      metadata,
+	}
+}

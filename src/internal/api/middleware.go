@@ -3,6 +3,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
@@ -10,6 +11,26 @@ import (
 
 	"github.com/go-chi/chi/v5/middleware"
 )
+
+// apiError carries an HTTP status code and message.
+// Implements the error interface so it can be returned from parseRequest helpers.
+type apiError struct {
+	status int
+	msg    string
+}
+
+func (e *apiError) Error() string { return e.msg }
+
+// writeError writes an error response, extracting the status code from apiError
+// when available and falling back to 500 for unexpected errors.
+func writeError(w http.ResponseWriter, err error) {
+	var ae *apiError
+	if errors.As(err, &ae) {
+		writeJSON(w, ae.status, ErrorResponse{Error: ae.msg})
+		return
+	}
+	writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: "internal error"})
+}
 
 // responseWriter wraps http.ResponseWriter to capture the status code.
 type responseWriter struct {
@@ -26,8 +47,8 @@ func (rw *responseWriter) WriteHeader(code int) {
 	rw.ResponseWriter.WriteHeader(code)
 }
 
-// MyRecoverMiddleware recovers from panics, logs the stack trace, and returns 500.
-func MyRecoverMiddleware(next http.Handler) http.Handler {
+// RecoverMiddleware recovers from panics, logs the stack trace, and returns 500.
+func RecoverMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if rec := recover(); rec != nil {
@@ -68,7 +89,7 @@ func BodySizeLimiter(n int64) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if n > 0 {
-				r.Body = http.MaxBytesReader(w, r.Body, n)
+				r.Body = http.MaxBytesReader(w, r.Body, n) // TODO: подумать насколько по тз и как отвечать на большие запросы
 			}
 			next.ServeHTTP(w, r)
 		})

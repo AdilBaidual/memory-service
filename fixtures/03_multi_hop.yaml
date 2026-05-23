@@ -1,0 +1,24 @@
+# Fixture: multi_hop
+# Purpose: Verify 2-hop entity traversal (e.g. owner-of-pet → city).
+# Filled in: Stage 5 (entity graph iteration)
+
+name: multi_hop
+description: Verify 2-hop entity traversal (e.g. owner-of-pet → city).
+
+conversations: []
+#  - session_id: s1
+#    user_id: u1
+#    timestamp: 2025-03-10T10:00:00Z
+#    messages:
+#      - role: user
+#        content: "My dog Max lives with me in Tokyo"
+#      - role: assistant
+#        content: "Tokyo is a great city for dogs!"
+
+probes: []
+#  - query: "What city does the user's pet live in?"
+#    session_id: probe-session
+#    user_id: u1
+#    max_tokens: 512
+#    expected_facts: ["Tokyo"]
+#    not_expected_facts: []

@@ -5,35 +5,34 @@ Entries are in reverse chronological order.
 
 ---
 
+## v0.2.0 — HTTP contract surface and storage layer
+
+Implements the six endpoints: POST /turns, POST /recall,
+POST /search, GET /users/{user_id}/memories, DELETE /sessions/{session_id},
+DELETE /users/{user_id}.
+
+Implemented component tests in a separate `tests/`.
+
+Implemented basic fixture scripts (`TestFixtureQuality`) is in place with five empty
+YAML scenario files; it prints "no fixture data yet" and exits cleanly
+until retrieval is wired.
+
+---
+
 ## v0.1.1 — Switch reranker: TEI → Cohere Rerank API
 
-**Problem with TEI.** The original reranker — a self-hosted TEI container
-running BAAI/bge-reranker-v2-m3 — is x86-only. On ARM64 (Apple Silicon,
-AWS Graviton) it either refuses to start or fails to download model weights
-under Rosetta 2 emulation due to a network resolution bug in the emulated
-environment. More fundamentally, it is English-only, which conflicts with
-the multi-language nature of the memory content this service stores.
+The original self-hosted TEI container (BAAI/bge-reranker-v2-m3) is x86-only
+and English-only — it fails on ARM64 and conflicts with the multilingual
+nature of the memory content. Switches to the Cohere Rerank API
+(rerank-multilingual-v3.0): no sidecar, no cold-start, 100+ languages.
+Self-hosted alternatives (TEI ARM64, Infinity) either have unstable ML stacks
+or add several minutes of cold-start per machine.
 
-**Decision.** Switches to the Cohere Rerank API (rerank-multilingual-v3.0).
-The model supports 100+ languages including Russian, Arabic, and CJK scripts.
-No sidecar container, no model-cache volume, no cold-start delay — the service
-makes an outbound HTTPS call per /recall request.
-
-**Alternatives considered.** TEI ARM64 builds exist but the ML stack is
-unstable under native ARM64 at the time of writing. Infinity (a multi-arch
-self-hosted serving platform) works but adds container weight and 3-5 minutes
-of cold-start per machine — unacceptable for an eval environment we don't
-control.
-
-**Trade-off accepted.** The service now depends on an external API at recall
-time. This is mitigated by graceful degradation: when COHERE_API_KEY is unset,
-retrieval falls back to RRF-only ranking. Hybrid retrieval (semantic + keyword
-+ graph + temporal) remains fully in effect; only the final cross-encoder pass
-is skipped.
-
-**Simplification.** The /health endpoint no longer checks reranker liveness —
-it returns 200 ok when the database is reachable, 503 when not. The previous
-"degraded" state (tied to TEI container liveness) is removed.
+The trade-off is a new runtime dependency on an external API. Mitigated by
+graceful degradation: when `COHERE_API_KEY` is unset the service falls back
+to RRF-only ranking, keeping hybrid retrieval fully functional. The /health
+endpoint no longer checks reranker liveness — it returns 200 when the
+database is reachable, 503 otherwise.
 
 ---
 

@@ -9,6 +9,4 @@ CHANGELOG.md
 docker-compose.yml
 Dockerfile
 model-cache/
-tests/
-fixtures/
 *.md

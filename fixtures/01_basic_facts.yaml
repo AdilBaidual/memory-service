@@ -1,0 +1,32 @@
+# Fixture: basic_facts
+# Purpose: Verify baseline extraction of common personal facts (location, employer, pets).
+# Filled in: Stage 3 (baseline AI iteration)
+
+name: basic_facts
+description: Verify baseline extraction of common personal facts (location, employer, pets).
+
+# A list of conversations to ingest via POST /turns before running probes.
+# Each conversation is a sequence of messages within a single session_id.
+# user_id is shared across conversations in the same fixture file to
+# simulate multi-session memory accumulation.
+conversations: []
+#  - session_id: s1
+#    user_id: u1
+#    timestamp: 2025-03-10T10:00:00Z
+#    messages:
+#      - role: user
+#        content: "I moved to Berlin last week"
+#      - role: assistant
+#        content: "Welcome to Berlin!"
+
+# A list of probe queries to send via POST /recall after ingestion.
+# Each probe has expected_facts (substrings that should appear in the
+# returned context) and not_expected_facts (substrings that must NOT
+# appear — used to verify supersedes, recency, scope).
+probes: []
+#  - query: "Where does the user live?"
+#    session_id: probe-session
+#    user_id: u1
+#    max_tokens: 512
+#    expected_facts: ["Berlin"]
+#    not_expected_facts: []

@@ -1,0 +1,32 @@
+services:
+  component-tests:
+    build:
+      context: .
+      dockerfile: tests/Dockerfile
+    environment:
+      SERVICE_URL: http://memory-service:8080
+    depends_on:
+      memory-service:
+        condition: service_healthy
+    command: >
+      go test -v -timeout 120s
+      -run "TestContract|TestConcurrent|TestMalformed|TestHealth|TestSearch|TestDelete|TestMemories"
+      .
+    networks:
+      - default
+
+  fixture-tests:
+    build:
+      context: .
+      dockerfile: tests/Dockerfile
+    environment:
+      SERVICE_URL: http://memory-service:8080
+    depends_on:
+      memory-service:
+        condition: service_healthy
+    command: >
+      go test -v -timeout 300s
+      -run "TestFixtureQuality"
+      .
+    networks:
+      - default
