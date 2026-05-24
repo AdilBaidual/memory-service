@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 
 	"memory-service/internal/adapters/llm"
 	"memory-service/internal/adapters/store"
@@ -18,7 +19,8 @@ import (
 	"memory-service/internal/service/extraction"
 )
 
-// ---- mock pgx.Row ----
+// ---- pgx infrastructure stubs ----
+// These implement external library interfaces and are kept as minimal hand-written stubs.
 
 type mockPgxRow struct {
 	id  uuid.UUID
@@ -37,29 +39,25 @@ func (r *mockPgxRow) Scan(dest ...any) error {
 	return nil
 }
 
-// ---- mock pgx.Rows (always empty) ----
-
 type emptyRows struct{}
 
-func (r *emptyRows) Close()                                      {}
-func (r *emptyRows) Err() error                                  { return nil }
-func (r *emptyRows) Next() bool                                  { return false }
-func (r *emptyRows) Scan(...any) error                           { return nil }
+func (r *emptyRows) Close()                                       {}
+func (r *emptyRows) Err() error                                   { return nil }
+func (r *emptyRows) Next() bool                                   { return false }
+func (r *emptyRows) Scan(...any) error                            { return nil }
 func (r *emptyRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
-func (r *emptyRows) Values() ([]any, error)                      { return nil, nil }
-func (r *emptyRows) RawValues() [][]byte                        { return nil }
-func (r *emptyRows) Conn() *pgx.Conn                             { return nil }
-func (r *emptyRows) CommandTag() pgconn.CommandTag               { return pgconn.CommandTag{} }
-
-// ---- mock pgx.Tx ----
+func (r *emptyRows) Values() ([]any, error)                       { return nil, nil }
+func (r *emptyRows) RawValues() [][]byte                          { return nil }
+func (r *emptyRows) Conn() *pgx.Conn                              { return nil }
+func (r *emptyRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
 
 type mockTx struct {
 	id        uuid.UUID
 	commitErr error
 }
 
-func (m *mockTx) Commit(ctx context.Context) error   { return m.commitErr }
-func (m *mockTx) Rollback(ctx context.Context) error { return nil }
+func (m *mockTx) Commit(ctx context.Context) error    { return m.commitErr }
+func (m *mockTx) Rollback(ctx context.Context) error  { return nil }
 func (m *mockTx) Exec(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
 	return pgconn.CommandTag{}, nil
 }
@@ -69,24 +67,16 @@ func (m *mockTx) Query(_ context.Context, _ string, _ ...any) (pgx.Rows, error) 
 func (m *mockTx) QueryRow(_ context.Context, _ string, _ ...any) pgx.Row {
 	return &mockPgxRow{id: m.id}
 }
-func (m *mockTx) Begin(ctx context.Context) (pgx.Tx, error) {
-	return nil, nil
-}
+func (m *mockTx) Begin(_ context.Context) (pgx.Tx, error) { return nil, nil }
 func (m *mockTx) CopyFrom(_ context.Context, _ pgx.Identifier, _ []string, _ pgx.CopyFromSource) (int64, error) {
 	return 0, nil
 }
-func (m *mockTx) SendBatch(_ context.Context, _ *pgx.Batch) pgx.BatchResults {
-	return nil
-}
-func (m *mockTx) LargeObjects() pgx.LargeObjects {
-	return pgx.LargeObjects{}
-}
+func (m *mockTx) SendBatch(_ context.Context, _ *pgx.Batch) pgx.BatchResults { return nil }
+func (m *mockTx) LargeObjects() pgx.LargeObjects                              { return pgx.LargeObjects{} }
 func (m *mockTx) Prepare(_ context.Context, _, _ string) (*pgconn.StatementDescription, error) {
 	return nil, nil
 }
 func (m *mockTx) Conn() *pgx.Conn { return nil }
-
-// ---- mock TxPool ----
 
 type mockTxPool struct {
 	txs      []*mockTx
@@ -115,70 +105,56 @@ func (p *mockTxPool) QueryRow(_ context.Context, _ string, _ ...any) pgx.Row {
 	return &mockPgxRow{id: uuid.New()}
 }
 
-// ---- mock ExtractionService ----
+// ---- testify/mock service mocks ----
 
-type mockExtractionSvc struct {
-	candidates []extraction.Candidate
-	rels       []llm.Relationship
-	err        error
-	called     bool
-	embedResp  []float32
-	embedErr   error
+// MockExtractionService mocks ExtractionService using testify/mock.
+type MockExtractionService struct{ mock.Mock }
+
+func (m *MockExtractionService) Extract(ctx context.Context, input extraction.ExtractionInput) ([]extraction.Candidate, []llm.Relationship, error) {
+	args := m.Called(ctx, input)
+	cands, _ := args.Get(0).([]extraction.Candidate)
+	rels, _ := args.Get(1).([]llm.Relationship)
+	return cands, rels, args.Error(2)
 }
 
-func (m *mockExtractionSvc) Extract(_ context.Context, _ extraction.ExtractionInput) ([]extraction.Candidate, []llm.Relationship, error) {
-	m.called = true
-	return m.candidates, m.rels, m.err
-}
-func (m *mockExtractionSvc) Embed(_ context.Context, _ string) ([]float32, error) {
-	return m.embedResp, m.embedErr
+func (m *MockExtractionService) Embed(ctx context.Context, text string) ([]float32, error) {
+	args := m.Called(ctx, text)
+	emb, _ := args.Get(0).([]float32)
+	return emb, args.Error(1)
 }
 
-// ---- mock ConsolidationService ----
+// MockConsolidationService mocks ConsolidationService using testify/mock.
+type MockConsolidationService struct{ mock.Mock }
 
-type mockConsSvc struct {
-	err    error
-	called int
-	retID  uuid.UUID
-}
-
-func (m *mockConsSvc) ConsolidateFact(
-	_ context.Context,
-	_ store.Querier,
-	_, _ string,
-	_ *string,
-	_, _ string,
-	_ float32,
-	_ []string,
-	_ []float32,
-	_ *string,
-	_ *uuid.UUID,
+func (m *MockConsolidationService) ConsolidateFact(
+	ctx context.Context,
+	q store.Querier,
+	userID, memType string,
+	key *string,
+	value, evidence string,
+	confidence float32,
+	entities []string,
+	embedding []float32,
+	sourceSession *string,
+	sourceTurn *uuid.UUID,
 ) (uuid.UUID, consolidation.Result, error) {
-	m.called++
-	id := m.retID
-	if id == uuid.Nil {
-		id = uuid.New()
-	}
-	return id, consolidation.ResultADD, m.err
+	args := m.Called(ctx, q, userID, memType, key, value, evidence, confidence, entities, embedding, sourceSession, sourceTurn)
+	return args.Get(0).(uuid.UUID), args.Get(1).(consolidation.Result), args.Error(2)
 }
 
-// ---- mock RelationshipsService ----
+// MockRelationshipsService mocks RelationshipsService using testify/mock.
+type MockRelationshipsService struct{ mock.Mock }
 
-type mockRelSvc struct {
-	err    error
-	called bool
-}
-
-func (m *mockRelSvc) ProcessRelationships(
-	_ context.Context,
-	_ store.Querier,
-	_ string,
-	_ []llm.Relationship,
-	_ map[string]uuid.UUID,
-	_ uuid.UUID,
+func (m *MockRelationshipsService) ProcessRelationships(
+	ctx context.Context,
+	q store.Querier,
+	userID string,
+	rels []llm.Relationship,
+	entityMemoryMap map[string]uuid.UUID,
+	fallbackMemoryID uuid.UUID,
 ) error {
-	m.called = true
-	return m.err
+	args := m.Called(ctx, q, userID, rels, entityMemoryMap, fallbackMemoryID)
+	return args.Error(0)
 }
 
 // ---- helpers ----
@@ -199,21 +175,21 @@ func newTestTurn(sessionID string, userID *string) TurnInput {
 func TestIngest_NoUserID_SkipsExtraction(t *testing.T) {
 	turnID := uuid.New()
 	pool := &mockTxPool{txs: []*mockTx{{id: turnID}}}
-	ext := &mockExtractionSvc{}
+	ext := new(MockExtractionService)
 
-	uc := NewIngestTurnUsecase(pool, ext, &mockConsSvc{}, &mockRelSvc{})
+	uc := NewIngestTurnUsecase(pool, ext, new(MockConsolidationService), new(MockRelationshipsService))
 	out, err := uc.Ingest(context.Background(), newTestTurn("s1", nil))
 
 	assert.NoError(t, err)
 	assert.Equal(t, turnID.String(), out.ID)
-	assert.False(t, ext.called, "extraction must not be called without user_id")
+	ext.AssertNotCalled(t, "Extract")
 }
 
 func TestIngest_NilExtractor_SkipsExtraction(t *testing.T) {
 	turnID := uuid.New()
 	pool := &mockTxPool{txs: []*mockTx{{id: turnID}}}
 
-	uc := NewIngestTurnUsecase(pool, nil, &mockConsSvc{}, &mockRelSvc{})
+	uc := NewIngestTurnUsecase(pool, nil, new(MockConsolidationService), new(MockRelationshipsService))
 	uid := "u1"
 	out, err := uc.Ingest(context.Background(), newTestTurn("s1", &uid))
 
@@ -240,19 +216,24 @@ func TestIngest_CommitError_ReturnsError(t *testing.T) {
 
 func TestIngest_WithUserID_ExtractorCalled(t *testing.T) {
 	turnID := uuid.New()
-	tx1 := &mockTx{id: turnID}
-	tx2 := &mockTx{id: uuid.New()}
-	pool := &mockTxPool{txs: []*mockTx{tx1, tx2}}
+	pool := &mockTxPool{txs: []*mockTx{{id: turnID}, {id: uuid.New()}}}
 
-	ext := &mockExtractionSvc{
-		candidates: []extraction.Candidate{
-			{Type: "fact", Key: strPtr("name"), Value: "Alice", Evidence: "explicit", Confidence: 0.95, Entities: []string{"alice"}},
-		},
-		rels:      []llm.Relationship{},
-		embedResp: []float32{0.1, 0.2},
+	cands := []extraction.Candidate{
+		{Type: "fact", Key: strPtr("name"), Value: "Alice", Evidence: "explicit", Confidence: 0.95, Entities: []string{"alice"}},
 	}
-	cons := &mockConsSvc{}
-	rel := &mockRelSvc{}
+
+	ext := new(MockExtractionService)
+	ext.On("Extract", mock.Anything, mock.Anything).Return(cands, []llm.Relationship{}, nil)
+	ext.On("Embed", mock.Anything, mock.Anything).Return([]float32{0.1, 0.2}, nil)
+
+	cons := new(MockConsolidationService)
+	cons.On("ConsolidateFact",
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything, mock.Anything,
+	).Return(uuid.New(), consolidation.ResultADD, nil)
+
+	rel := new(MockRelationshipsService)
 
 	uc := NewIngestTurnUsecase(pool, ext, cons, rel)
 	uid := "u1"
@@ -260,41 +241,45 @@ func TestIngest_WithUserID_ExtractorCalled(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Equal(t, turnID.String(), out.ID)
-	assert.True(t, ext.called, "extraction must be called with user_id")
+	ext.AssertExpectations(t)
+	cons.AssertExpectations(t)
+	rel.AssertNotCalled(t, "ProcessRelationships")
 }
 
 func TestIngest_ExtractionError_NonFatal(t *testing.T) {
 	turnID := uuid.New()
-	tx1 := &mockTx{id: turnID}
-	tx2 := &mockTx{id: uuid.New()}
-	pool := &mockTxPool{txs: []*mockTx{tx1, tx2}}
+	pool := &mockTxPool{txs: []*mockTx{{id: turnID}}}
 
-	ext := &mockExtractionSvc{err: errors.New("llm error")}
-	cons := &mockConsSvc{}
+	ext := new(MockExtractionService)
+	ext.On("Extract", mock.Anything, mock.Anything).Return(nil, nil, errors.New("llm error"))
 
-	uc := NewIngestTurnUsecase(pool, ext, cons, &mockRelSvc{})
+	cons := new(MockConsolidationService)
+
+	uc := NewIngestTurnUsecase(pool, ext, cons, new(MockRelationshipsService))
 	uid := "u1"
 	out, err := uc.Ingest(context.Background(), newTestTurn("s1", &uid))
 
 	assert.NoError(t, err, "extraction error must be non-fatal")
 	assert.Equal(t, turnID.String(), out.ID)
-	assert.Zero(t, cons.called, "consolidation must not be called when extraction fails")
+	ext.AssertExpectations(t)
+	cons.AssertNotCalled(t, "ConsolidateFact")
 }
 
 func TestIngest_ZeroCandidates_SkipsConsolidation(t *testing.T) {
 	turnID := uuid.New()
-	tx1 := &mockTx{id: turnID}
-	tx2 := &mockTx{id: uuid.New()}
-	pool := &mockTxPool{txs: []*mockTx{tx1, tx2}}
+	pool := &mockTxPool{txs: []*mockTx{{id: turnID}}}
 
-	ext := &mockExtractionSvc{candidates: []extraction.Candidate{}, rels: []llm.Relationship{}}
-	cons := &mockConsSvc{}
+	ext := new(MockExtractionService)
+	ext.On("Extract", mock.Anything, mock.Anything).Return([]extraction.Candidate{}, []llm.Relationship{}, nil)
 
-	uc := NewIngestTurnUsecase(pool, ext, cons, &mockRelSvc{})
+	cons := new(MockConsolidationService)
+
+	uc := NewIngestTurnUsecase(pool, ext, cons, new(MockRelationshipsService))
 	uid := "u1"
 	out, err := uc.Ingest(context.Background(), newTestTurn("s1", &uid))
 
 	assert.NoError(t, err)
 	assert.Equal(t, turnID.String(), out.ID)
-	assert.Zero(t, cons.called)
+	ext.AssertExpectations(t)
+	cons.AssertNotCalled(t, "ConsolidateFact")
 }

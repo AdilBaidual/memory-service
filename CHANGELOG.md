@@ -5,6 +5,18 @@ Entries are in reverse chronological order.
 
 ---
 
+## v1.4.0 — Layered Go architecture
+
+- Reorganises `src/internal/` into four explicit layers: `adapters/` (OpenAI client, PostgreSQL CRUD), `service/` (extraction, consolidation, relationships, retrieval), `usecase/` (per-endpoint pipelines with transaction management), `handlers/` (HTTP parsing and response serialisation only). Each layer depends only on layers below it via interfaces defined at the consumer, not the implementer.
+- Breaks the extraction service's direct DB dependency. Previously `Extract` issued its own pool queries for existing key-value hints and opinion topics; now the usecase fetches those before calling `Extract` and passes them in via `ExtractionInput`, keeping `service/extraction` free of `adapters/store` imports.
+- Adds unit tests for the `usecase/` package at 84% coverage using `testify/mock`. Application-level interfaces (`ExtractionService`, `ConsolidationService`, `RelationshipsService`, `Retriever`, `MemoryLister`, `SessionDeleter`, `UserDeleter`) use `mock.Mock`; pgx infrastructure stubs remain hand-written.
+- Adds 10 component tests for spec compliance gaps: invalid role and empty content on turns, missing `session_id` on recall, invalid `active`/`limit` params on memories, no `user_id` behaviour on turns and recall, search limit defaults and cap, session delete scope.
+- Extracts `judgeClient` struct from the fixture runner's inline HTTP call, removes the commented debug filter, adds an ASCII summary table to fixture output.
+
+Fixture metrics identical to v1.3.2.
+
+---
+
 ## v1.3.2 — Graph scoring precision and extraction stability
 
 - Adds mention_count as an entity importance signal in hop1 scoring. hop1_memories now LEFT JOINs the entities table and multiplies the base score of 1.0 by `LEAST(1 + ln(mention_count) × 0.1, 2.0)` — an entity mentioned 15 times receives a ~27% score boost over a one-off name before RRF fusion. The boost is applied only at hop1; hop2 intentionally stays flat at 0.5 because the traversal-neighbour entity is almost always "user", which carries an extremely high mention_count and would uniformly inflate scores for unrelated memories if boosted.

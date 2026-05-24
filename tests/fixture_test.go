@@ -53,6 +53,13 @@ type Probe struct {
 	JudgeAssertions  []JudgeAssertion `yaml:"judge_assertions"`
 }
 
+// fixtureResult holds per-fixture scoring for the summary table.
+type fixtureResult struct {
+	name     string
+	hits     int
+	expected int
+}
+
 func loadFixtures(dir string) ([]Fixture, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -64,9 +71,6 @@ func loadFixtures(dir string) ([]Fixture, error) {
 		if !strings.HasSuffix(e.Name(), ".yaml") {
 			continue
 		}
-		//if e.Name() != "03_multi_hop.yaml" {
-		//	continue
-		//}
 		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", e.Name(), err)
@@ -83,7 +87,7 @@ func loadFixtures(dir string) ([]Fixture, error) {
 func TestFixtureQuality(t *testing.T) {
 	fixturesDir := os.Getenv("FIXTURES_DIR")
 	if fixturesDir == "" {
-		fixturesDir = "/fixtures" // path inside the test container
+		fixturesDir = "/fixtures"
 	}
 
 	fixtures, err := loadFixtures(fixturesDir)
@@ -103,18 +107,20 @@ func TestFixtureQuality(t *testing.T) {
 		return
 	}
 
+	judge := newJudgeClient(os.Getenv("OPENAI_API_KEY"))
+
 	totalHits, totalExpected, totalNotExpectedFails := 0, 0, 0
 	totalJudgeHits, totalJudgeTotal, totalJudgeViolations := 0, 0, 0
+	var results []fixtureResult
 
 	for _, f := range fixtures {
 		if len(f.Conversations) == 0 {
 			t.Logf("[%s] no conversations, skipping", f.Name)
+			results = append(results, fixtureResult{name: f.Name})
 			continue
 		}
 
 		t.Run(f.Name, func(t *testing.T) {
-			// Wipe all users from this fixture so stale data from previous
-			// runs cannot pollute retrieval results.
 			for _, userID := range fixtureUserIDs(f) {
 				t.Log("DELETED userID:", userID)
 				resp := deleteReq(t, "/users/"+userID)
@@ -122,7 +128,6 @@ func TestFixtureQuality(t *testing.T) {
 				resp.Body.Close()
 			}
 
-			// Ingest all conversations
 			ingestStart := time.Now()
 			turnDurations := make([]time.Duration, 0, len(f.Conversations))
 			for _, conv := range f.Conversations {
@@ -163,7 +168,6 @@ func TestFixtureQuality(t *testing.T) {
 			t.Logf("  ingest: %d turns in %v (avg %v/turn)",
 				len(f.Conversations), totalIngest.Round(time.Millisecond), avgTurn.Round(time.Millisecond))
 
-			// Run probes
 			fixtureHits, fixtureExpected := 0, 0
 			for _, probe := range f.Probes {
 				maxTokens := probe.MaxTokens
@@ -188,23 +192,18 @@ func TestFixtureQuality(t *testing.T) {
 				}
 				recallCtx := readBody(t, resp)
 
-				// Count expected facts
 				hits := 0
 				for _, expected := range probe.ExpectedFacts {
-					if strings.Contains(strings.ToLower(recallCtx),
-						strings.ToLower(expected)) {
+					if strings.Contains(strings.ToLower(recallCtx), strings.ToLower(expected)) {
 						hits++
 					}
 				}
 
-				// Count not-expected violations
 				violations := 0
 				for _, notExpected := range probe.NotExpectedFacts {
-					if strings.Contains(strings.ToLower(recallCtx),
-						strings.ToLower(notExpected)) {
+					if strings.Contains(strings.ToLower(recallCtx), strings.ToLower(notExpected)) {
 						violations++
-						t.Logf("  [VIOLATION] %q found in context but should not be",
-							notExpected)
+						t.Logf("  [VIOLATION] %q found in context but should not be", notExpected)
 					}
 				}
 
@@ -214,17 +213,14 @@ func TestFixtureQuality(t *testing.T) {
 
 				t.Logf("  probe %q: %d/%d hits, recall %v",
 					probe.Query, hits, len(probe.ExpectedFacts), recallDuration.Round(time.Millisecond))
-				//t.Logf("  recall response:\n%s", recallCtx)
 
-				// LLM judge assertions (only when judge_assertions is populated)
 				judgeHits, judgeTotal, judgeViolations := 0, 0, 0
 				if len(probe.JudgeAssertions) > 0 {
-					judgeCtx, cancel := context.WithTimeout(
-						context.Background(), 30*time.Second)
+					judgeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 					defer cancel()
 
 					for _, assertion := range probe.JudgeAssertions {
-						verdict, err := judgeAssertion(judgeCtx, recallCtx, assertion.Claim)
+						verdict, err := judge.judge(judgeCtx, recallCtx, assertion.Claim)
 						if err != nil {
 							t.Logf("    [JUDGE ERROR] claim %q: %v", assertion.Claim, err)
 							continue
@@ -261,34 +257,65 @@ func TestFixtureQuality(t *testing.T) {
 			if fixtureExpected > 0 {
 				pct = float64(fixtureHits) / float64(fixtureExpected) * 100
 			}
-			t.Logf("[%s] %d/%d expected facts (%.0f%%)",
-				f.Name, fixtureHits, fixtureExpected, pct)
+			t.Logf("[%s] %d/%d expected facts (%.0f%%)", f.Name, fixtureHits, fixtureExpected, pct)
+
+			results = append(results, fixtureResult{name: f.Name, hits: fixtureHits, expected: fixtureExpected})
 		})
 	}
 
-	// Aggregate
+	// ASCII summary table
+	printSummaryTable(t, results, totalHits, totalExpected)
+
 	overallPct := 0.0
 	if totalExpected > 0 {
 		overallPct = float64(totalHits) / float64(totalExpected) * 100
 	}
-	t.Logf("─────────────────────────────────────────")
-	t.Logf("OVERALL: %d/%d expected facts (%.0f%%)",
-		totalHits, totalExpected, overallPct)
 	if totalNotExpectedFails > 0 {
 		t.Logf("NOT-EXPECTED violations: %d", totalNotExpectedFails)
 	}
 	if totalJudgeTotal > 0 {
 		judgePct := float64(totalJudgeHits) / float64(totalJudgeTotal) * 100
-		t.Logf("JUDGE: %d/%d assertions correct (%.0f%%)",
-			totalJudgeHits, totalJudgeTotal, judgePct)
+		t.Logf("JUDGE: %d/%d assertions correct (%.0f%%)", totalJudgeHits, totalJudgeTotal, judgePct)
 		if totalJudgeViolations > 0 {
 			t.Logf("JUDGE violations: %d", totalJudgeViolations)
 		}
 	}
-	t.Logf("─────────────────────────────────────────")
+	_ = overallPct // reported in the table
+}
 
-	// No assertion — this is a measurement tool, not pass/fail.
-	// Copy the OVERALL line into CHANGELOG after each iteration.
+func printSummaryTable(t *testing.T, results []fixtureResult, totalHits, totalExpected int) {
+	t.Helper()
+	const nameW, hitsW, scoreW = 28, 8, 10
+	sep := fmt.Sprintf("├%s┼%s┼%s┤",
+		strings.Repeat("─", nameW+2), strings.Repeat("─", hitsW+2), strings.Repeat("─", scoreW+2))
+
+	t.Logf("┌%s┬%s┬%s┐",
+		strings.Repeat("─", nameW+2), strings.Repeat("─", hitsW+2), strings.Repeat("─", scoreW+2))
+	t.Logf("│ %-*s │ %-*s │ %-*s │", nameW, "Fixture", hitsW, "Hits", scoreW, "Score")
+	t.Log(sep)
+
+	for _, r := range results {
+		hits := fmt.Sprintf("%d/%d", r.hits, r.expected)
+		score := "—"
+		if r.expected > 0 {
+			score = fmt.Sprintf("%.0f%%", float64(r.hits)/float64(r.expected)*100)
+		}
+		name := r.name
+		if len(name) > nameW {
+			name = name[:nameW]
+		}
+		t.Logf("│ %-*s │ %*s │ %*s │", nameW, name, hitsW, hits, scoreW, score)
+	}
+
+	t.Log(sep)
+	overallHits := fmt.Sprintf("%d/%d", totalHits, totalExpected)
+	overallScore := "—"
+	if totalExpected > 0 {
+		overallScore = fmt.Sprintf("%.0f%%", float64(totalHits)/float64(totalExpected)*100)
+	}
+	t.Logf("│ %-*s │ %*s │ %*s │", nameW, "OVERALL", hitsW, overallHits, scoreW, overallScore)
+	t.Logf("└%s┴%s┴%s┘",
+		strings.Repeat("─", nameW+2), strings.Repeat("─", hitsW+2), strings.Repeat("─", scoreW+2))
 }
 
 // fixtureUserIDs returns the deduplicated set of user_ids across all
@@ -305,12 +332,18 @@ func fixtureUserIDs(f Fixture) []string {
 	return ids
 }
 
-// judgeAssertion asks gpt-4o-mini whether the claim is true given the context.
-// Returns (verdict bool, err error) where verdict=true means the context supports
-// the claim. Returns an error (and skips the assertion) when OPENAI_API_KEY is unset.
-func judgeAssertion(ctx context.Context, recallCtx, claim string) (bool, error) {
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
+// judgeClient makes LLM judge calls to verify recall quality against claims.
+// Nil-safe: if apiKey is empty, judge returns an error and the assertion is skipped.
+type judgeClient struct {
+	apiKey string
+}
+
+func newJudgeClient(apiKey string) *judgeClient {
+	return &judgeClient{apiKey: apiKey}
+}
+
+func (j *judgeClient) judge(ctx context.Context, recallCtx, claim string) (bool, error) {
+	if j.apiKey == "" {
 		return false, fmt.Errorf("OPENAI_API_KEY not set")
 	}
 
@@ -348,7 +381,7 @@ Rules:
 		return false, fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Authorization", "Bearer "+j.apiKey)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

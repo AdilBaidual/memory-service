@@ -7,32 +7,31 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 )
 
-type mockUserDeleter struct {
-	err        error
-	called     bool
-	calledWith string
-}
+// MockUserDeleter mocks UserDeleter using testify/mock.
+type MockUserDeleter struct{ mock.Mock }
 
-func (m *mockUserDeleter) DeleteUser(_ context.Context, userID string) error {
-	m.called = true
-	m.calledWith = userID
-	return m.err
+func (m *MockUserDeleter) DeleteUser(ctx context.Context, userID string) error {
+	args := m.Called(ctx, userID)
+	return args.Error(0)
 }
 
 func TestDeleteUserUsecase_HappyPath(t *testing.T) {
-	d := &mockUserDeleter{}
+	d := new(MockUserDeleter)
+	d.On("DeleteUser", mock.Anything, "user-1").Return(nil)
 	uc := NewDeleteUserUsecase(d)
 	err := uc.Delete(context.Background(), "user-1")
 	assert.NoError(t, err)
-	assert.True(t, d.called)
-	assert.Equal(t, "user-1", d.calledWith)
+	d.AssertExpectations(t)
 }
 
 func TestDeleteUserUsecase_DeleterError_Propagated(t *testing.T) {
-	d := &mockUserDeleter{err: errors.New("db error")}
+	d := new(MockUserDeleter)
+	d.On("DeleteUser", mock.Anything, "user-1").Return(errors.New("db error"))
 	uc := NewDeleteUserUsecase(d)
 	err := uc.Delete(context.Background(), "user-1")
 	assert.ErrorContains(t, err, "delete user")
+	d.AssertExpectations(t)
 }
