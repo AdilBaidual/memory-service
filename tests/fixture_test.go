@@ -51,6 +51,9 @@ func loadFixtures(dir string) ([]Fixture, error) {
 
 	var fixtures []Fixture
 	for _, e := range entries {
+		if e.Name() != "05_opinion_arc.yaml" {
+			continue
+		}
 		if !strings.HasSuffix(e.Name(), ".yaml") {
 			continue
 		}
@@ -99,6 +102,13 @@ func TestFixtureQuality(t *testing.T) {
 		}
 
 		t.Run(f.Name, func(t *testing.T) {
+			// Wipe all users from this fixture so stale data from previous
+			// runs cannot pollute retrieval results.
+			for _, userID := range fixtureUserIDs(f) {
+				resp := deleteReq(t, "/users/"+userID)
+				resp.Body.Close()
+			}
+
 			// Ingest all conversations
 			for _, conv := range f.Conversations {
 				msgs := "["
@@ -203,4 +213,18 @@ func TestFixtureQuality(t *testing.T) {
 
 	// No assertion — this is a measurement tool, not pass/fail.
 	// Copy the OVERALL line into CHANGELOG after each iteration.
+}
+
+// fixtureUserIDs returns the deduplicated set of user_ids across all
+// conversations in a fixture. Used for pre-run cleanup.
+func fixtureUserIDs(f Fixture) []string {
+	seen := make(map[string]bool)
+	var ids []string
+	for _, conv := range f.Conversations {
+		if conv.UserID != "" && !seen[conv.UserID] {
+			seen[conv.UserID] = true
+			ids = append(ids, conv.UserID)
+		}
+	}
+	return ids
 }

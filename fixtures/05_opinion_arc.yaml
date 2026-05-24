@@ -1,40 +1,132 @@
 name: opinion_arc
-description: "Verify opinion representation captures evolving views. 
-  Without opinion_view synthesis, context shows raw fragments 
-  without coherent arc. Key check: does the context reflect the CURRENT 
-  pragmatic stance, not just the initial enthusiasm?"
+description: >
+  Verify that /recall reflects the user's CURRENT synthesized stance, not a
+  mix of all raw opinion fragments across time.
+  Without opinion_view synthesis (Stage 3) all three raw TypeScript opinions
+  appear in top-k context — "game changer" from the early enthusiasm is
+  visible as a violation. With Stage 7 synthesis a single opinion_view per
+  topic replaces raw fragments and only the settled pragmatic stance remains.
+  Expected to produce a violation at Stage 3, pass cleanly at Stage 7.
+
+  Noise sessions deliberately cover non-programming topics so they score low
+  on any TypeScript probe and do not crowd out the three TypeScript opinions
+  from top-k. All three TypeScript opinions must compete for slots among
+  themselves plus low-scoring noise.
 
 conversations:
+
+  # ── Core case ────────────────────────────────────────────────────────────
+
+  # Session 1 (early): explicit enthusiasm framed entirely as an opinion so
+  # the LLM extracts it as type=opinion with "game changer" in the value,
+  # not as a plain event. No timestamp hints to avoid event extraction.
   - session_id: oa-s1
     user_id: oa-u1
     timestamp: 2025-01-05T10:00:00Z
     messages:
       - role: user
-        content: "Been using TypeScript on a new project and I absolutely 
-          love it. The type safety catches so many bugs before runtime."
+        content: "TypeScript is a complete game changer. Eliminated an entire
+          category of runtime bugs for our team overnight. Best tooling
+          decision we have made in years — I cannot imagine going back to
+          plain JavaScript."
       - role: assistant
-        content: "TypeScript really shines on larger codebases!"
+        content: "That's high praise — what convinced you most?"
+      - role: user
+        content: "The immediate feedback loop. You catch mistakes before they
+          ever reach a test suite, let alone production."
 
+  # Session 2: frustration — still TypeScript-focused so it scores high on
+  # any TypeScript probe and stays in top-k at Stage 3.
   - session_id: oa-s2
     user_id: oa-u1
     timestamp: 2025-02-10T10:00:00Z
     messages:
       - role: user
-        content: "Ugh, TypeScript generics are really frustrating me today. 
-          The type complexity is getting out of hand. Sometimes I miss 
-          just writing plain JavaScript."
+        content: "TypeScript mapped types are defeating me today. Spent four
+          hours on a utility type that Python would have handled in ten lines.
+          Sometimes I wonder if the complexity is worth it."
       - role: assistant
         content: "Deeply nested generics can be rough."
 
+  # Session 3 (current): settled pragmatic view. "quick prototypes" is the
+  # anchor phrase that must survive into the synthesized opinion_view.
   - session_id: oa-s3
     user_id: oa-u1
     timestamp: 2025-03-20T10:00:00Z
     messages:
       - role: user
-        content: "I've settled on a pragmatic view — TypeScript for team 
-          projects, Python for personal scripts. It's a tool, not a religion."
+        content: "I have settled my view: TypeScript for anything shared or
+          production-bound, JavaScript for quick prototypes. Right tool,
+          right job. It is not a religion."
       - role: assistant
         content: "That's a healthy way to look at it."
+
+  # ── Noise ────────────────────────────────────────────────────────────────
+  # 8 sessions on non-programming topics. They score low on any TypeScript
+  # probe so all three TypeScript opinions remain in the top-k competition.
+  - session_id: oa-noise-01
+    user_id: oa-u1
+    timestamp: 2024-12-01T10:00:00Z
+    messages:
+      - role: user
+        content: "Run 5k every morning before work. Started six months ago
+          and it has completely changed how I feel during the day."
+
+  - session_id: oa-noise-02
+    user_id: oa-u1
+    timestamp: 2024-12-10T10:00:00Z
+    messages:
+      - role: user
+        content: "Been vegetarian for three years. I cook more interesting
+          food now than I ever did when I was eating meat."
+
+  - session_id: oa-noise-03
+    user_id: oa-u1
+    timestamp: 2024-12-20T10:00:00Z
+    messages:
+      - role: user
+        content: "Live in Berlin, Prenzlauer Berg. Five years here and still
+          discovering new spots every weekend."
+
+  - session_id: oa-noise-04
+    user_id: oa-u1
+    timestamp: 2025-01-15T10:00:00Z
+    messages:
+      - role: user
+        content: "Picked up guitar during lockdown and never put it down.
+          Working through fingerstyle arrangements, mostly Sungha Jung."
+
+  - session_id: oa-noise-05
+    user_id: oa-u1
+    timestamp: 2025-01-25T10:00:00Z
+    messages:
+      - role: user
+        content: "Baking sourdough every weekend. My starter is two years old
+          and I have named it Herbert."
+
+  - session_id: oa-noise-06
+    user_id: oa-u1
+    timestamp: 2025-02-05T10:00:00Z
+    messages:
+      - role: user
+        content: "I do landscape photography as a hobby. Shoot on a Sony A7III.
+          Nothing beats golden hour on an empty beach."
+
+  - session_id: oa-noise-07
+    user_id: oa-u1
+    timestamp: 2025-02-20T10:00:00Z
+    messages:
+      - role: user
+        content: "Learning Spanish for eight months using Anki and a weekly
+          tutor. Can hold basic conversations now."
+
+  - session_id: oa-noise-08
+    user_id: oa-u1
+    timestamp: 2025-03-05T10:00:00Z
+    messages:
+      - role: user
+        content: "Started doing watercolour painting last month. Terrible at
+          it so far but I enjoy the process more than the outcome."
 
 probes:
   - query: "What does the user currently think about TypeScript?"
@@ -42,7 +134,11 @@ probes:
     user_id: oa-u1
     max_tokens: 512
     expected_facts:
-      - "pragmatic"
+      # In session 3; must survive into the synthesized view at Stage 7.
+      - "quick prototypes"
     not_expected_facts:
-      - "love it"
-      - "absolutely love"
+      # "game changer" is the opinion value the LLM extracts from session 1.
+      # At Stage 3 all three TypeScript opinions are in top-k so this appears.
+      # At Stage 7 the opinion_view synthesis drops early enthusiasm and this
+      # string no longer appears in context.
+      - "game changer"

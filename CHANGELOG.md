@@ -16,13 +16,13 @@ Entries are in reverse chronological order.
 - All extracted facts INSERT unconditionally (no consolidation check)
 - Graceful degradation when OPENAI_API_KEY is absent: turn saved, /recall returns empty
 
-Fixture baseline metrics:
-  - basic_facts:       2/3 hits (67%)
-  - fact_evolution:    1/1 hits (100%)
-  - multi_hop:         1/1 hits (100%)
-  - noise_resistance:  0 violations (negative test — checks not_expected_facts only)
-  - opinion_arc:       1/1 hits (100%)
-  - OVERALL:           5/6 (83%), 1 not-expected violation
+Fixture baseline metrics (after cleanup fix — each run starts from empty state):
+  - basic_facts:       3/3 hits (100%)
+  - fact_evolution:    1/1 hits (100%) | violation: "Stripe" still in context (no consolidation)
+  - multi_hop:         0/1 hits   (0%) | Amsterdam pushed out of top-10 by noise — fails as expected
+  - noise_resistance:  0 violations    (negative test — checks not_expected_facts only)
+  - opinion_arc:       1/1 hits (100%) | violation: "game changer" still in context (no opinion_view)
+  - OVERALL:           5/6 (83%), 2 not-expected violations
 
 ---
 

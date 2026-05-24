@@ -1,35 +1,210 @@
 name: multi_hop
-description: "Verify 2-hop entity traversal. Luna (cat) and Amsterdam (city) 
-  are mentioned in completely separate sessions with no linguistic overlap. 
-  Without entity graph traversal, cosine cannot connect them."
+description: >
+  Verify 2-hop entity traversal: Luna (cat) and Amsterdam (city) come from
+  completely separate sessions with no linguistic overlap.
+  The probe query asks about the cat's location without mentioning "city" or
+  "Amsterdam", so cosine-only retrieval cannot bridge the gap once noise fills
+  top-k. Graph traversal (Luna → owned_by → mh-u1 → lives_in → Amsterdam)
+  is the only reliable path. Expected to FAIL at Stage 3, PASS at Stage 5.
 
 conversations:
+
+  # ── Core case ────────────────────────────────────────────────────────────
+  # Session 1: establishes that the user owns a cat named Luna.
   - session_id: mh-s1
     user_id: mh-u1
     timestamp: 2025-03-01T10:00:00Z
     messages:
       - role: user
-        content: "Got a new cat last year, her name is Luna. She's a tabby, 
+        content: "Got a new cat last year, her name is Luna. She's a tabby,
           very chatty, always wants attention when I'm working."
       - role: assistant
         content: "Luna sounds like quite the character!"
       - role: user
         content: "She really is. Best decision I ever made getting her."
 
+  # Session 2: establishes the user's city. No mention of Luna or pets.
+  # Deliberately omits weather/nature vocabulary to reduce cosine overlap
+  # with any cat-behaviour query.
   - session_id: mh-s2
     user_id: mh-u1
     timestamp: 2025-03-10T10:00:00Z
     messages:
       - role: user
-        content: "The weather has been terrible this week, very typical for 
-          this time of year here."
+        content: "Just got back from a long bike ride around the canals."
       - role: assistant
         content: "Where are you based?"
       - role: user
-        content: "Amsterdam. Been living here for about four years now."
+        content: "Amsterdam. Moved here from Rotterdam four years ago."
+
+  # ── Noise ────────────────────────────────────────────────────────────────
+  # 12 unrelated sessions that fill top-k slots so Amsterdam is pushed out
+  # when the probe asks about the cat's evening habits (no "city" keyword).
+  - session_id: mh-noise-01
+    user_id: mh-u1
+    timestamp: 2025-02-01T10:00:00Z
+    messages:
+      - role: user
+        content: "I've been writing Rust for about two years now. The borrow
+          checker was painful at first but now I find it liberating."
+
+  - session_id: mh-noise-02
+    user_id: mh-u1
+    timestamp: 2025-02-03T10:00:00Z
+    messages:
+      - role: user
+        content: "Run 5k every morning before work. Started six months ago
+          and it's completely changed how I feel during the day."
+
+  - session_id: mh-noise-03
+    user_id: mh-u1
+    timestamp: 2025-02-05T10:00:00Z
+    messages:
+      - role: user
+        content: "I've been vegetarian for three years. Don't miss meat at
+          all — if anything I cook more interesting food now."
+
+  - session_id: mh-noise-04
+    user_id: mh-u1
+    timestamp: 2025-02-07T10:00:00Z
+    messages:
+      - role: user
+        content: "Picked up guitar during lockdown and never put it down.
+          Play fingerstyle mostly, working through some Sungha Jung pieces."
+
+  - session_id: mh-noise-05
+    user_id: mh-u1
+    timestamp: 2025-02-09T10:00:00Z
+    messages:
+      - role: user
+        content: "Just finished The Martian for the second time. Andy Weir
+          is my favourite author — Project Hail Mary is even better."
+
+  - session_id: mh-noise-06
+    user_id: mh-u1
+    timestamp: 2025-02-11T10:00:00Z
+    messages:
+      - role: user
+        content: "Switched to black coffee, no sugar, two years ago.
+          Took a month to adjust but now I can't stand sweet coffee."
+
+  - session_id: mh-noise-07
+    user_id: mh-u1
+    timestamp: 2025-02-13T10:00:00Z
+    messages:
+      - role: user
+        content: "Got a standing desk last year. I alternate sitting and
+          standing roughly every hour. Back pain is basically gone."
+
+  - session_id: mh-noise-08
+    user_id: mh-u1
+    timestamp: 2025-02-15T10:00:00Z
+    messages:
+      - role: user
+        content: "I've been learning Spanish for eight months using
+          Anki and a weekly tutor. Can hold basic conversations now."
+
+  - session_id: mh-noise-09
+    user_id: mh-u1
+    timestamp: 2025-02-17T10:00:00Z
+    messages:
+      - role: user
+        content: "Baking sourdough every weekend. My starter is two years
+          old and I've named it Herbert."
+
+  - session_id: mh-noise-10
+    user_id: mh-u1
+    timestamp: 2025-02-19T10:00:00Z
+    messages:
+      - role: user
+        content: "Big into strategy games — Factorio, Dwarf Fortress,
+          that kind of thing. I find them meditative rather than stressful."
+
+  - session_id: mh-noise-11
+    user_id: mh-u1
+    timestamp: 2025-02-21T10:00:00Z
+    messages:
+      - role: user
+        content: "I do landscape photography as a hobby. Shoot on a Sony
+          A7III. Nothing beats golden hour on an empty beach."
+
+  - session_id: mh-noise-12
+    user_id: mh-u1
+    timestamp: 2025-02-23T10:00:00Z
+    messages:
+      - role: user
+        content: "Strongly prefer async remote work. I do my best thinking
+          between 10pm and midnight and offices kill that completely."
+
+  - session_id: mh-noise-13
+    user_id: mh-u1
+    timestamp: 2025-02-25T10:00:00Z
+    messages:
+      - role: user
+        content: "I use a mechanical keyboard — Cherry MX Browns. The
+          tactile bump without the loud click is exactly what I need."
+
+  - session_id: mh-noise-14
+    user_id: mh-u1
+    timestamp: 2025-02-27T10:00:00Z
+    messages:
+      - role: user
+        content: "Been intermittent fasting for about a year. 16:8 window.
+          Breakfast is overrated honestly."
+
+  - session_id: mh-noise-15
+    user_id: mh-u1
+    timestamp: 2025-03-01T09:00:00Z
+    messages:
+      - role: user
+        content: "I track all my expenses in a plain text ledger file.
+          Personal finance software is too bloated for what I need."
+
+  - session_id: mh-noise-16
+    user_id: mh-u1
+    timestamp: 2025-03-03T10:00:00Z
+    messages:
+      - role: user
+        content: "Sleep eight hours religiously. No alarms. I'd rather
+          adjust my schedule than compromise on sleep quality."
+
+  - session_id: mh-noise-17
+    user_id: mh-u1
+    timestamp: 2025-03-05T10:00:00Z
+    messages:
+      - role: user
+        content: "I brew my own kombucha. Three-week fermentation cycle.
+          Currently experimenting with ginger lemon flavour."
+
+  - session_id: mh-noise-18
+    user_id: mh-u1
+    timestamp: 2025-03-07T10:00:00Z
+    messages:
+      - role: user
+        content: "Started doing watercolour painting recently. Terrible at
+          it so far but I enjoy the process more than the outcome."
+
+  - session_id: mh-noise-19
+    user_id: mh-u1
+    timestamp: 2025-03-09T10:00:00Z
+    messages:
+      - role: user
+        content: "I have a strict no-meetings-before-noon policy. Non-negotiable
+          for any job I take."
+
+  - session_id: mh-noise-20
+    user_id: mh-u1
+    timestamp: 2025-03-11T10:00:00Z
+    messages:
+      - role: user
+        content: "Reading Gödel, Escher, Bach right now. Dense but every
+          chapter reframes how I think about recursion and self-reference."
 
 probes:
-  - query: "What city does Luna's owner live in?"
+  # Query deliberately avoids "city" / "live" / "Amsterdam" so cosine cannot
+  # shortcut directly to the Amsterdam memory. Answer requires the chain:
+  # Luna → owned_by → mh-u1 → lives_in → Amsterdam.
+  - query: "Where does the user's cat Luna typically spend her evenings?"
     session_id: mh-probe
     user_id: mh-u1
     max_tokens: 512
