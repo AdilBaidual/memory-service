@@ -135,7 +135,7 @@ func renderOpinionsSection(mems []store.Memory) (string, []store.Memory) {
 }
 
 func renderMemLine(m store.Memory) string {
-	ts := m.CreatedAt.Format(time.DateOnly)
+	ts := m.CreatedAt.Format(time.RFC3339)
 	if m.Key != nil && *m.Key != "" {
 		return fmt.Sprintf("- [%s] %s: %s", ts, *m.Key, m.Value)
 	}

@@ -1,7 +1,11 @@
 # Changelog
 
-Architectural decisions and significant changes during development.
-Entries are in reverse chronological order.
+---
+
+## v1.6.2 — Component test hardening: /search and /memories
+
+- Audits `POST /search` and `GET /users/{id}/memories` against spec requirements; all 14 checked requirements pass with no implementation gaps found.
+- Adds 13 explicit contract tests covering: both-null-ID search returning empty array, unknown-user search returning empty array, session-only scoped search, limit enforcement, full result shape decoding, missing-query 400, unknown-user memories returning empty array, null-safe memories serialization, `active=false` filter for superseded history, `active=true` filter correctness, `type` filter correctness, offset-based pagination returning distinct pages, and full response shape including `total`/`limit`/`offset` fields.
 
 ---
 

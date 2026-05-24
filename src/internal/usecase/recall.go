@@ -107,7 +107,7 @@ func (uc *RecallUsecase) Recall(ctx context.Context, in RecallInput) RecallOutpu
 		retrieved, err = uc.retriever.Retrieve(ctx, retrieval.RetrieveParams{
 			Query:  in.Query,
 			UserID: userID,
-			Limit:  10,
+			Limit:  25,
 		})
 		if err != nil {
 			slog.Warn("retrieval failed", "error", err, "user_id", userID)

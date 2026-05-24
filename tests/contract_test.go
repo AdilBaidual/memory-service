@@ -2,6 +2,7 @@
 package tests
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -214,5 +215,285 @@ func TestDeleteSession_DerivedMemoriesFromOtherSessionPreserved(t *testing.T) {
 	resp.Body.Close()
 
 	// Cleanup
+	deleteReq(t, "/users/"+uid)
+}
+
+// ─── POST /search ──────────────────────────────────────────────────────────────
+
+func TestSearch_BothNullIDs_ReturnsEmpty(t *testing.T) {
+	resp := postJSON(t, "/search", `{"query":"test","limit":5}`)
+	mustStatus(t, resp, 200)
+	body := readBody(t, resp)
+	if strings.Contains(body, `"results":null`) {
+		t.Fatal("results must not be null")
+	}
+	if !strings.Contains(body, `"results":[]`) {
+		t.Fatalf("expected empty results array, got: %s", body)
+	}
+}
+
+func TestSearch_UnknownUser_ReturnsEmpty(t *testing.T) {
+	resp := postJSON(t, "/search",
+		`{"query":"test","user_id":"nobody-exists-ever","limit":5}`)
+	mustStatus(t, resp, 200)
+	body := readBody(t, resp)
+	if strings.Contains(body, `"results":null`) {
+		t.Fatal("results must not be null for unknown user")
+	}
+}
+
+func TestSearch_SessionOnly_ReturnsResults(t *testing.T) {
+	uid := uniqueID("user")
+	sid := uniqueID("session")
+
+	resp := postJSON(t, "/turns", validTurnBody(sid, uid))
+	mustStatus(t, resp, 201)
+	resp.Body.Close()
+
+	body := fmt.Sprintf(`{"query":"hello","session_id":%q,"limit":5}`, sid)
+	resp = postJSON(t, "/search", body)
+	mustStatus(t, resp, 200)
+
+	rb := readBody(t, resp)
+	if strings.Contains(rb, `"results":null`) {
+		t.Fatal("results must not be null for session-only search")
+	}
+
+	deleteReq(t, "/users/"+uid)
+}
+
+func TestSearch_LimitRespected(t *testing.T) {
+	uid := uniqueID("user")
+	for i := 0; i < 5; i++ {
+		sid := uniqueID("session")
+		resp := postJSON(t, "/turns", validTurnBody(sid, uid))
+		mustStatus(t, resp, 201)
+		resp.Body.Close()
+	}
+
+	body := fmt.Sprintf(`{"query":"hello","user_id":%q,"limit":2}`, uid)
+	resp := postJSON(t, "/search", body)
+	mustStatus(t, resp, 200)
+
+	var result struct {
+		Results []json.RawMessage `json:"results"`
+	}
+	decodeJSON(t, resp, &result)
+	if len(result.Results) > 2 {
+		t.Fatalf("limit=2 but got %d results", len(result.Results))
+	}
+
+	deleteReq(t, "/users/"+uid)
+}
+
+func TestSearch_ResultShape(t *testing.T) {
+	uid := uniqueID("user")
+	sid := uniqueID("session")
+
+	resp := postJSON(t, "/turns", validTurnBody(sid, uid))
+	mustStatus(t, resp, 201)
+	resp.Body.Close()
+
+	body := fmt.Sprintf(`{"query":"hello","user_id":%q,"limit":5}`, uid)
+	resp = postJSON(t, "/search", body)
+	mustStatus(t, resp, 200)
+
+	var result struct {
+		Results []struct {
+			Content   string          `json:"content"`
+			Score     float64         `json:"score"`
+			SessionID string          `json:"session_id"`
+			Timestamp string          `json:"timestamp"`
+			Metadata  json.RawMessage `json:"metadata"`
+		} `json:"results"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("search result shape invalid: %v", err)
+	}
+	resp.Body.Close()
+
+	deleteReq(t, "/users/"+uid)
+}
+
+func TestSearch_MissingQuery_Returns400(t *testing.T) {
+	resp := postJSON(t, "/search", `{"user_id":"somebody","limit":5}`)
+	mustStatus(t, resp, 400)
+	resp.Body.Close()
+}
+
+// ─── GET /users/{id}/memories ─────────────────────────────────────────────────
+
+func TestMemories_UnknownUser_ReturnsEmpty(t *testing.T) {
+	resp := get(t, "/users/nobody-exists-ever/memories")
+	mustStatus(t, resp, 200)
+	body := readBody(t, resp)
+	if strings.Contains(body, `"memories":null`) {
+		t.Fatal("memories must not be null for unknown user")
+	}
+	if !strings.Contains(body, `"memories":[]`) {
+		t.Fatalf("expected empty memories array, got: %s", body)
+	}
+}
+
+func TestMemories_MemoriesNeverNull(t *testing.T) {
+	resp := get(t, "/users/nobody/memories")
+	mustStatus(t, resp, 200)
+	body := readBody(t, resp)
+	if strings.Contains(body, `"memories":null`) {
+		t.Fatal("memories must serialize as [] not null")
+	}
+}
+
+func TestMemories_ShowsSupersededHistory(t *testing.T) {
+	uid := uniqueID("user")
+
+	resp := postJSON(t, "/turns", fmt.Sprintf(`{
+		"session_id":"s1-%s","user_id":%q,
+		"messages":[{"role":"user","content":"I work at Stripe"}],
+		"timestamp":"2025-01-01T10:00:00Z","metadata":{}}`, uid, uid))
+	mustStatus(t, resp, 201)
+	resp.Body.Close()
+
+	resp = postJSON(t, "/turns", fmt.Sprintf(`{
+		"session_id":"s2-%s","user_id":%q,
+		"messages":[{"role":"user","content":"I switched jobs, now working at Notion"}],
+		"timestamp":"2025-03-01T10:00:00Z","metadata":{}}`, uid, uid))
+	mustStatus(t, resp, 201)
+	resp.Body.Close()
+
+	// active=false filter must not error and must return valid shape
+	resp = get(t, "/users/"+uid+"/memories?active=false")
+	mustStatus(t, resp, 200)
+	body := readBody(t, resp)
+	if strings.Contains(body, `"memories":null`) {
+		t.Fatal("memories must not be null with active=false filter")
+	}
+
+	deleteReq(t, "/users/"+uid)
+}
+
+func TestMemories_FilterByActiveTrue(t *testing.T) {
+	uid := uniqueID("user")
+	sid := uniqueID("session")
+
+	resp := postJSON(t, "/turns", validTurnBody(sid, uid))
+	mustStatus(t, resp, 201)
+	resp.Body.Close()
+
+	resp = get(t, "/users/"+uid+"/memories?active=true")
+	mustStatus(t, resp, 200)
+
+	var result struct {
+		Memories []struct {
+			Active bool `json:"active"`
+		} `json:"memories"`
+	}
+	decodeJSON(t, resp, &result)
+
+	for _, m := range result.Memories {
+		if !m.Active {
+			t.Fatal("active=true filter returned inactive memory")
+		}
+	}
+
+	deleteReq(t, "/users/"+uid)
+}
+
+func TestMemories_FilterByType(t *testing.T) {
+	uid := uniqueID("user")
+	sid := uniqueID("session")
+
+	resp := postJSON(t, "/turns", validTurnBody(sid, uid))
+	mustStatus(t, resp, 201)
+	resp.Body.Close()
+
+	resp = get(t, "/users/"+uid+"/memories?type=fact")
+	mustStatus(t, resp, 200)
+
+	var result struct {
+		Memories []struct {
+			Type string `json:"type"`
+		} `json:"memories"`
+	}
+	decodeJSON(t, resp, &result)
+
+	for _, m := range result.Memories {
+		if m.Type != "fact" {
+			t.Fatalf("type=fact filter returned memory of type %q", m.Type)
+		}
+	}
+
+	deleteReq(t, "/users/"+uid)
+}
+
+func TestMemories_Pagination(t *testing.T) {
+	uid := uniqueID("user")
+	for i := 0; i < 3; i++ {
+		sid := uniqueID("session")
+		resp := postJSON(t, "/turns", validTurnBody(sid, uid))
+		mustStatus(t, resp, 201)
+		resp.Body.Close()
+	}
+
+	page1 := get(t, "/users/"+uid+"/memories?limit=1&offset=0")
+	mustStatus(t, page1, 200)
+	page2 := get(t, "/users/"+uid+"/memories?limit=1&offset=1")
+	mustStatus(t, page2, 200)
+
+	var r1, r2 struct {
+		Memories []struct {
+			ID string `json:"id"`
+		} `json:"memories"`
+	}
+	decodeJSON(t, page1, &r1)
+	decodeJSON(t, page2, &r2)
+
+	if len(r1.Memories) > 0 && len(r2.Memories) > 0 {
+		if r1.Memories[0].ID == r2.Memories[0].ID {
+			t.Fatal("pagination returned same memory on different pages")
+		}
+	}
+
+	deleteReq(t, "/users/"+uid)
+}
+
+func TestMemories_ResponseShape(t *testing.T) {
+	uid := uniqueID("user")
+	sid := uniqueID("session")
+
+	resp := postJSON(t, "/turns", validTurnBody(sid, uid))
+	mustStatus(t, resp, 201)
+	resp.Body.Close()
+
+	resp = get(t, "/users/"+uid+"/memories")
+	mustStatus(t, resp, 200)
+
+	var result struct {
+		Memories []struct {
+			ID            string  `json:"id"`
+			Type          string  `json:"type"`
+			Key           *string `json:"key"`
+			Value         string  `json:"value"`
+			Confidence    float64 `json:"confidence"`
+			SourceSession string  `json:"source_session"`
+			SourceTurn    *string `json:"source_turn"`
+			CreatedAt     string  `json:"created_at"`
+			UpdatedAt     string  `json:"updated_at"`
+			Supersedes    *string `json:"supersedes"`
+			Active        bool    `json:"active"`
+		} `json:"memories"`
+		Total  int `json:"total"`
+		Limit  int `json:"limit"`
+		Offset int `json:"offset"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("memories response shape invalid: %v", err)
+	}
+	resp.Body.Close()
+
+	if result.Limit == 0 {
+		t.Fatal("limit field missing or zero in response")
+	}
+
 	deleteReq(t, "/users/"+uid)
 }

@@ -3,7 +3,6 @@ package retrieval
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"math"
 	"sort"
@@ -20,6 +19,10 @@ import (
 const (
 	candidatesPerChannel = 30
 	rerankCandidates     = 30
+
+	// channelTimeout caps each retrieval channel individually so a slow graph
+	// traversal doesn't hold up fusion — completed channels proceed regardless.
+	channelTimeout = 30 * time.Second
 
 	// temporalLambda controls decay rate: half-life ≈ 139 days.
 	// Conservative — stable facts stay relevant even if not updated recently.
@@ -59,46 +62,92 @@ func (r *HybridRetriever) Retrieve(
 		graphResults    []store.ScoredMemory
 	)
 
-	g, gctx := errgroup.WithContext(ctx)
+	// Each channel gets its own deadline derived from the request context.
+	// The errgroup goroutine selects on chCtx.Done() so it returns immediately
+	// on timeout — the inner worker goroutine cleans itself up via chCtx.
+	// Buffered result channels (cap 1) prevent goroutine leaks.
+	var g errgroup.Group
+
+	type scoredResult struct {
+		data []store.ScoredMemory
+		err  error
+	}
 
 	if r.client != nil {
 		g.Go(func() error {
-			hydeQuery := r.hydeRewrite(gctx, params.Query)
-			emb, err := r.client.Embed(gctx, hydeQuery)
-			if err != nil {
-				slog.Warn("semantic channel failed", "err", err)
+			chCtx, cancel := context.WithTimeout(ctx, channelTimeout)
+			defer cancel()
+			done := make(chan scoredResult, 1)
+			go func() {
+				hydeQuery := r.hydeRewrite(chCtx, params.Query)
+				emb, err := r.client.Embed(chCtx, hydeQuery)
+				if err != nil {
+					done <- scoredResult{err: err}
+					return
+				}
+				data, err := store.GetTopKByCosine(
+					chCtx, r.pool, params.UserID, emb, candidatesPerChannel)
+				done <- scoredResult{data, err}
+			}()
+			select {
+			case <-chCtx.Done():
+				slog.Warn("semantic channel timed out", "err", chCtx.Err())
+				return nil
+			case res := <-done:
+				if res.err != nil {
+					slog.Warn("semantic channel failed", "err", res.err)
+					return nil
+				}
+				semanticResults = res.data
 				return nil
 			}
-			results, err := store.GetTopKByCosine(
-				gctx, r.pool, params.UserID, emb, candidatesPerChannel)
-			if err != nil {
-				return fmt.Errorf("semantic search: %w", err)
-			}
-			semanticResults = results
-			return nil
 		})
 	}
 
 	g.Go(func() error {
-		results, err := keywordSearch(
-			gctx, r.pool, params.UserID, params.Query, candidatesPerChannel)
-		if err != nil {
-			slog.Warn("keyword channel failed", "err", err)
+		chCtx, cancel := context.WithTimeout(ctx, channelTimeout)
+		defer cancel()
+		done := make(chan scoredResult, 1)
+		go func() {
+			data, err := keywordSearch(
+				chCtx, r.pool, params.UserID, params.Query, candidatesPerChannel)
+			done <- scoredResult{data, err}
+		}()
+		select {
+		case <-chCtx.Done():
+			slog.Warn("keyword channel timed out", "err", chCtx.Err())
+			return nil
+		case res := <-done:
+			if res.err != nil {
+				slog.Warn("keyword channel failed", "err", res.err)
+				return nil
+			}
+			keywordResults = res.data
 			return nil
 		}
-		keywordResults = results
-		return nil
 	})
 
 	g.Go(func() error {
-		results, err := graphSearch(
-			gctx, r.pool, params.UserID, params.Query, candidatesPerChannel)
-		if err != nil {
-			slog.Warn("graph channel failed", "err", err)
+		chCtx, cancel := context.WithTimeout(ctx, channelTimeout)
+		defer cancel()
+		done := make(chan scoredResult, 1)
+		go func() {
+			data, err := graphSearch(
+				chCtx, r.pool, params.UserID, params.Query, candidatesPerChannel)
+			done <- scoredResult{data, err}
+		}()
+		select {
+		case <-chCtx.Done():
+			slog.Warn("graph channel timed out", "err", chCtx.Err())
+			return nil
+		case res := <-done:
+			if res.err != nil {
+				slog.Warn("graph channel failed", "err", res.err)
+				return nil
+			}
+			graphResults = res.data
 			return nil
 		}
-		graphResults = results
-		return nil
 	})
 
 	if err := g.Wait(); err != nil {
