@@ -32,7 +32,7 @@ func (r *SemanticRetriever) Retrieve(ctx context.Context, params RetrieveParams)
 		return nil, fmt.Errorf("embed query: %w", err)
 	}
 
-	scored, err := store.GetTopKByCosine(ctx, r.pool, params.UserID, queryEmbedding, params.Limit)
+	scored, err := store.GetTopKByCosine(ctx, r.pool, params.Scope, queryEmbedding, params.Limit)
 	if err != nil {
 		return nil, fmt.Errorf("cosine search: %w", err)
 	}

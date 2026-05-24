@@ -6,6 +6,8 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"memory-service/internal/identity"
 )
 
 // PoolUserDeleter implements usecase.UserDeleter using a pool-managed transaction.
@@ -91,14 +93,14 @@ func NewPoolStableMemoryLoader(pool *pgxpool.Pool) *PoolStableMemoryLoader {
 	return &PoolStableMemoryLoader{pool: pool}
 }
 
-// GetActiveMemoriesByTypes returns active memories of the given types for a user.
-func (s *PoolStableMemoryLoader) GetActiveMemoriesByTypes(ctx context.Context, userID string, types []string) ([]Memory, error) {
-	return GetActiveMemoriesByTypes(ctx, s.pool, userID, types)
+// GetActiveMemoriesByTypes returns active memories of the given types for the given scope.
+func (s *PoolStableMemoryLoader) GetActiveMemoriesByTypes(ctx context.Context, scope identity.Scope, types []string) ([]Memory, error) {
+	return GetActiveMemoriesByTypes(ctx, s.pool, scope, types)
 }
 
 // GetActiveOpinionViewsWithEmbeddings returns active opinion_view memories with their embeddings.
-func (s *PoolStableMemoryLoader) GetActiveOpinionViewsWithEmbeddings(ctx context.Context, userID string) ([]OpinionViewWithEmbedding, error) {
-	return GetActiveOpinionViewsWithEmbeddings(ctx, s.pool, userID)
+func (s *PoolStableMemoryLoader) GetActiveOpinionViewsWithEmbeddings(ctx context.Context, scope identity.Scope) ([]OpinionViewWithEmbedding, error) {
+	return GetActiveOpinionViewsWithEmbeddings(ctx, s.pool, scope)
 }
 
 // PoolSessionQuerier implements usecase.SessionQuerier using a pool.

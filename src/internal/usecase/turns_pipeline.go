@@ -11,13 +11,14 @@ import (
 
 	"memory-service/internal/adapters/llm"
 	"memory-service/internal/adapters/store"
+	"memory-service/internal/identity"
 	"memory-service/internal/service/consolidation"
 	"memory-service/internal/service/extraction"
 	"memory-service/internal/service/opinions"
 )
 
 // Non-fatal: all errors are logged, never returned.
-func (uc *IngestTurnUsecase) extractAndPersist(ctx context.Context, in TurnInput, turnID uuid.UUID) {
+func (uc *IngestTurnUsecase) extractAndPersist(ctx context.Context, in TurnInput, turnID uuid.UUID, scope identity.Scope) {
 	if uc.ext == nil {
 		return
 	}
@@ -26,15 +27,15 @@ func (uc *IngestTurnUsecase) extractAndPersist(ctx context.Context, in TurnInput
 		extMsgs[i] = extraction.Message{Role: m.Role, Content: m.Content}
 	}
 
-	existingKVs, kvErr := store.GetCanonicalKeyValues(ctx, uc.pool, *in.UserID)
+	existingKVs, kvErr := store.GetCanonicalKeyValues(ctx, uc.pool, scope)
 	if kvErr != nil {
 		slog.Warn("get canonical key values failed, proceeding without hints",
-			"error", kvErr, "user_id", *in.UserID)
+			"error", kvErr, "scope", scope.String())
 	}
-	existingTopics, topicsErr := store.GetOpinionTopics(ctx, uc.pool, *in.UserID)
+	existingTopics, topicsErr := store.GetOpinionTopics(ctx, uc.pool, scope)
 	if topicsErr != nil {
 		slog.Warn("get opinion topics failed, proceeding without hints",
-			"error", topicsErr, "user_id", *in.UserID)
+			"error", topicsErr, "scope", scope.String())
 	}
 
 	kvHints := make([]extraction.KeyValue, len(existingKVs))
@@ -50,15 +51,15 @@ func (uc *IngestTurnUsecase) extractAndPersist(ctx context.Context, in TurnInput
 		ExistingOpinionTopics: existingTopics,
 	})
 	if err != nil {
-		slog.Warn("extraction failed", "error", err, "user_id", *in.UserID)
+		slog.Warn("extraction failed", "error", err, "scope", scope.String())
 		return
 	}
 	if len(candidates) == 0 && len(rels) == 0 {
-		slog.Info("no candidates extracted", "user_id", *in.UserID)
+		slog.Info("no candidates extracted", "scope", scope.String())
 		return
 	}
 
-	uc.persistMemories(ctx, in, turnID, candidates, rels)
+	uc.persistMemories(ctx, in, turnID, scope, candidates, rels)
 }
 
 // Non-fatal: all errors are logged, never returned.
@@ -66,12 +67,13 @@ func (uc *IngestTurnUsecase) persistMemories(
 	ctx context.Context,
 	in TurnInput,
 	turnID uuid.UUID,
+	scope identity.Scope,
 	candidates []extraction.Candidate,
 	rels []llm.Relationship,
 ) {
 	tx2, err := uc.pool.Begin(ctx)
 	if err != nil {
-		slog.Error("begin memory transaction", "error", err, "user_id", *in.UserID)
+		slog.Error("begin memory transaction", "error", err, "scope", scope.String())
 		return
 	}
 	defer tx2.Rollback(ctx) //nolint:errcheck
@@ -97,7 +99,7 @@ func (uc *IngestTurnUsecase) persistMemories(
 		embCancel()
 		if embErr != nil {
 			slog.Warn("embed candidate failed, storing without vector",
-				"error", embErr, "user_id", *in.UserID)
+				"error", embErr, "scope", scope.String())
 			embedding = nil
 		}
 
@@ -105,12 +107,12 @@ func (uc *IngestTurnUsecase) persistMemories(
 		switch c.Type {
 		case "fact", "preference":
 			id, result, consErr := uc.cons.ConsolidateFact(ctx, tx2,
-				*in.UserID, c.Type, c.Key, c.Value, c.Evidence, c.Confidence,
+				scope, c.Type, c.Key, c.Value, c.Evidence, c.Confidence,
 				c.Entities, embedding, &in.SessionID, &turnID,
 			)
 			if consErr != nil {
 				slog.Warn("consolidation failed",
-					"type", c.Type, "key", c.Key, "err", consErr, "user_id", *in.UserID)
+					"type", c.Type, "key", c.Key, "err", consErr, "scope", scope.String())
 				continue
 			}
 			memID = id
@@ -119,12 +121,12 @@ func (uc *IngestTurnUsecase) persistMemories(
 			}
 			inserted++
 			slog.Debug("memory consolidated",
-				"result", result.String(), "type", c.Type, "key", c.Key, "user_id", *in.UserID)
+				"result", result.String(), "type", c.Type, "key", c.Key, "scope", scope.String())
 
 		case "opinion", "event":
 			entJSON, _ := json.Marshal(c.Entities)
 			id, insErr := store.InsertMemory(ctx, tx2, store.InsertMemoryParams{
-				UserID:        *in.UserID,
+				Scope:         scope,
 				Type:          c.Type,
 				Key:           c.Key,
 				Value:         c.Value,
@@ -138,13 +140,13 @@ func (uc *IngestTurnUsecase) persistMemories(
 			})
 			if insErr != nil {
 				slog.Warn("insert failed",
-					"type", c.Type, "key", c.Key, "err", insErr, "user_id", *in.UserID)
+					"type", c.Type, "key", c.Key, "err", insErr, "scope", scope.String())
 				continue
 			}
 			memID = id
 			lastMemoryID = id
 			inserted++
-			slog.Debug("memory inserted", "type", c.Type, "key", c.Key, "user_id", *in.UserID)
+			slog.Debug("memory inserted", "type", c.Type, "key", c.Key, "scope", scope.String())
 		}
 
 		fromFact := c.Type == "fact" || c.Type == "preference"
@@ -159,22 +161,21 @@ func (uc *IngestTurnUsecase) persistMemories(
 			}
 		}
 
-		// Insert entity_mentions for each entity so the graph channel can find
-		// this memory directly, independent of relationship anchor resolution.
-		if memID != uuid.Nil {
+		// Entity mentions are user-scoped; skip for anonymous sessions.
+		if scope.IsUser() && memID != uuid.Nil {
 			for _, ent := range c.Entities {
 				lower := strings.ToLower(strings.TrimSpace(ent))
 				if lower == "" || lower == "user" {
 					continue
 				}
-				if err := store.UpsertEntity(ctx, tx2, lower, *in.UserID, ""); err != nil {
+				if err := store.UpsertEntity(ctx, tx2, lower, scope.Value, ""); err != nil {
 					slog.Warn("upsert entity for mention failed",
-						"entity", lower, "err", err, "user_id", *in.UserID)
+						"entity", lower, "err", err, "scope", scope.String())
 					continue
 				}
-				if err := store.InsertEntityMention(ctx, tx2, memID, lower, *in.UserID, "entity"); err != nil {
+				if err := store.InsertEntityMention(ctx, tx2, memID, lower, scope.Value, "entity"); err != nil {
 					slog.Warn("insert entity mention failed",
-						"entity", lower, "memory_id", memID, "err", err, "user_id", *in.UserID)
+						"entity", lower, "memory_id", memID, "err", err, "scope", scope.String())
 				}
 			}
 		}
@@ -185,29 +186,30 @@ func (uc *IngestTurnUsecase) persistMemories(
 		entityMemoryMap[k] = v.memID
 	}
 
-	if len(rels) > 0 {
+	// Relationship processing is user-scoped; skip for anonymous sessions.
+	if scope.IsUser() && len(rels) > 0 {
 		if err := uc.relProc.ProcessRelationships(
-			ctx, tx2, *in.UserID, rels, entityMemoryMap, lastMemoryID,
+			ctx, tx2, scope.Value, rels, entityMemoryMap, lastMemoryID,
 		); err != nil {
 			slog.Warn("relationship processing failed",
-				"err", err, "user_id", *in.UserID, "count", len(rels))
+				"err", err, "scope", scope.String(), "count", len(rels))
 		} else {
 			slog.Debug("relationships processed",
-				"count", len(rels), "user_id", *in.UserID)
+				"count", len(rels), "scope", scope.String())
 		}
 	}
 
 	if err := tx2.Commit(ctx); err != nil {
-		slog.Error("commit memory transaction", "error", err, "user_id", *in.UserID)
+		slog.Error("commit memory transaction", "error", err, "scope", scope.String())
 		return
 	}
 	slog.Info("memories inserted",
-		"count", inserted, "turn_id", turnID.String(), "user_id", *in.UserID)
+		"count", inserted, "turn_id", turnID.String(), "scope", scope.String())
 
 	// Opinion synthesis: runs after commit so raw opinions are visible.
 	// Non-fatal — synthesis failures never prevent turn ingestion from succeeding.
 	if uc.opinSynth != nil {
-		uc.synthesizeOpinionViews(ctx, candidates, *in.UserID, in.SessionID)
+		uc.synthesizeOpinionViews(ctx, candidates, scope, in.SessionID)
 	}
 }
 
@@ -216,13 +218,14 @@ func (uc *IngestTurnUsecase) persistMemories(
 func (uc *IngestTurnUsecase) synthesizeOpinionViews(
 	ctx context.Context,
 	candidates []extraction.Candidate,
-	userID, sessionID string,
+	scope identity.Scope,
+	sessionID string,
 ) {
 	keys := collectOpinionKeys(candidates)
 	for _, key := range keys {
-		rawOps, err := store.GetRawOpinionsByKey(ctx, uc.pool, userID, key)
+		rawOps, err := store.GetRawOpinionsByKey(ctx, uc.pool, scope, key)
 		if err != nil {
-			slog.Warn("get raw opinions failed", "key", key, "err", err, "user_id", userID)
+			slog.Warn("get raw opinions failed", "key", key, "err", err, "scope", scope.String())
 			continue
 		}
 		if len(rawOps) < 2 {
@@ -235,12 +238,12 @@ func (uc *IngestTurnUsecase) synthesizeOpinionViews(
 		}
 
 		result, err := uc.opinSynth.Synthesize(ctx, opinions.SynthesisRequest{
-			UserID:   userID,
+			UserID:   scope.Value,
 			Key:      key,
 			Opinions: values,
 		})
 		if err != nil {
-			slog.Warn("opinion synthesis failed", "key", key, "err", err, "user_id", userID)
+			slog.Warn("opinion synthesis failed", "key", key, "err", err, "scope", scope.String())
 			continue
 		}
 
@@ -257,15 +260,15 @@ func (uc *IngestTurnUsecase) synthesizeOpinionViews(
 			slog.Warn("begin opinion_view tx failed", "key", key, "err", err)
 			continue
 		}
-		if err := store.UpsertOpinionView(ctx, tx3, userID, key, result.Value, &sessionID, embedding); err != nil {
+		if err := store.UpsertOpinionView(ctx, tx3, scope, key, result.Value, &sessionID, embedding); err != nil {
 			tx3.Rollback(ctx) //nolint:errcheck
-			slog.Warn("upsert opinion_view failed", "key", key, "err", err, "user_id", userID)
+			slog.Warn("upsert opinion_view failed", "key", key, "err", err, "scope", scope.String())
 			continue
 		}
 		if err := tx3.Commit(ctx); err != nil {
 			slog.Warn("commit opinion_view tx failed", "key", key, "err", err)
 		} else {
-			slog.Info("opinion_view upserted", "key", key, "user_id", userID)
+			slog.Info("opinion_view upserted", "key", key, "scope", scope.String())
 		}
 	}
 }

@@ -8,11 +8,24 @@ import (
 
 	"github.com/google/uuid"
 	pgvector "github.com/pgvector/pgvector-go"
+
+	"memory-service/internal/identity"
 )
+
+// ScopeWhere returns the WHERE clause fragment for scoping queries to the correct identity.
+// For user scope:    "user_id = $N"
+// For session scope: "source_session = $N AND user_id IS NULL"
+func ScopeWhere(scope identity.Scope, paramN int) string {
+	placeholder := fmt.Sprintf("$%d", paramN)
+	if scope.IsUser() {
+		return fmt.Sprintf("user_id = %s", placeholder)
+	}
+	return fmt.Sprintf("source_session = %s AND user_id IS NULL", placeholder)
+}
 
 type Memory struct {
 	ID            uuid.UUID
-	UserID        string
+	UserID        *string // nullable: nil for session-scoped (anonymous) memories
 	Type          string
 	Key           *string
 	Value         string
@@ -36,7 +49,7 @@ type ScoredMemory struct {
 }
 
 type InsertMemoryParams struct {
-	UserID        string
+	Scope         identity.Scope
 	Type          string
 	Key           *string
 	Value         string
@@ -69,6 +82,8 @@ func InsertMemory(ctx context.Context, q Querier, m InsertMemoryParams) (uuid.UU
 		embeddingArg = pgvector.NewVector(m.Embedding)
 	}
 
+	userID := m.Scope.UserID() // nil for session-scoped (stored as SQL NULL)
+
 	var id uuid.UUID
 	err := q.QueryRow(ctx, `
 		INSERT INTO memories (
@@ -81,7 +96,7 @@ func InsertMemory(ctx context.Context, q Querier, m InsertMemoryParams) (uuid.UU
 			NOW(), NOW(), '{}'
 		) RETURNING id
 	`,
-		m.UserID, m.Type, m.Key, m.Value, m.Evidence, m.Confidence, []byte(entities),
+		userID, m.Type, m.Key, m.Value, m.Evidence, m.Confidence, []byte(entities),
 		embeddingArg, m.SourceSession, m.SourceTurn, m.Supersedes,
 	).Scan(&id)
 	if err != nil {

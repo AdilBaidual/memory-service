@@ -7,10 +7,12 @@ import (
 	"strings"
 
 	"memory-service/internal/adapters/store"
+	"memory-service/internal/identity"
 )
 
 // graphSearch finds memories reachable from query entities via
-// up to 2-hop entity_relationships traversal.
+// up to 2-hop entity_relationships traversal. For session-scoped (anonymous)
+// queries this always returns nil — entity mentions are user-scoped only.
 //
 // Consistency guarantee: all graph queries filter through
 // memories.active = true via JOIN. entity_relationships is
@@ -22,15 +24,21 @@ import (
 func graphSearch(
 	ctx context.Context,
 	q store.Querier,
-	userID string,
+	scope identity.Scope,
 	query string,
 	limit int,
 ) ([]store.ScoredMemory, error) {
+	// Entity graph is user-scoped; anonymous sessions degrade gracefully.
+	if !scope.IsUser() {
+		return nil, nil
+	}
 
 	entities := extractQueryEntities(query)
 	if len(entities) == 0 {
 		return nil, nil
 	}
+
+	userID := scope.Value
 
 	const sql = `
 		WITH

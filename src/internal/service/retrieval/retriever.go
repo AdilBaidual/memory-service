@@ -5,6 +5,7 @@ import (
 	"context"
 
 	"memory-service/internal/adapters/store"
+	"memory-service/internal/identity"
 )
 
 type RetrievedMemory struct {
@@ -12,9 +13,9 @@ type RetrievedMemory struct {
 }
 
 type RetrieveParams struct {
-	Query  string
-	UserID string
-	Limit  int
+	Query string
+	Scope identity.Scope
+	Limit int
 }
 
 type Retriever interface {

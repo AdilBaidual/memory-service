@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"memory-service/internal/adapters/store"
+	"memory-service/internal/identity"
 )
 
 // Result describes what consolidation did for a single candidate.
@@ -41,7 +42,7 @@ func (r Result) String() string {
 func ConsolidateFact(
 	ctx context.Context,
 	q store.Querier,
-	userID string,
+	scope identity.Scope,
 	memType string,
 	key *string,
 	value string,
@@ -53,19 +54,19 @@ func ConsolidateFact(
 	sourceTurn *uuid.UUID,
 ) (uuid.UUID, Result, error) {
 	if key == nil || *key == "" {
-		id, err := insertNew(ctx, q, userID, memType, key, value,
+		id, err := insertNew(ctx, q, scope, memType, key, value,
 			evidence, confidence, entities, embedding,
 			sourceSession, sourceTurn, nil)
 		return id, ResultADD, err
 	}
 
-	existing, err := store.FindActiveByKey(ctx, q, userID, memType, *key)
+	existing, err := store.FindActiveByKeyScoped(ctx, q, scope, memType, *key)
 	if err != nil {
 		return uuid.Nil, ResultADD, fmt.Errorf("find active by key: %w", err)
 	}
 
 	if existing == nil {
-		id, err := insertNew(ctx, q, userID, memType, key, value,
+		id, err := insertNew(ctx, q, scope, memType, key, value,
 			evidence, confidence, entities, embedding,
 			sourceSession, sourceTurn, nil)
 		return id, ResultADD, err
@@ -81,7 +82,7 @@ func ConsolidateFact(
 	if err := store.MarkSuperseded(ctx, q, existing.ID); err != nil {
 		return uuid.Nil, ResultUPDATE, fmt.Errorf("mark superseded: %w", err)
 	}
-	id, err := insertNew(ctx, q, userID, memType, key, value,
+	id, err := insertNew(ctx, q, scope, memType, key, value,
 		evidence, confidence, entities, embedding,
 		sourceSession, sourceTurn, &existing.ID)
 	return id, ResultUPDATE, err
@@ -100,7 +101,8 @@ func NewConsolidator() *Consolidator { return &Consolidator{} }
 func (c *Consolidator) ConsolidateFact(
 	ctx context.Context,
 	q store.Querier,
-	userID, memType string,
+	scope identity.Scope,
+	memType string,
 	key *string,
 	value, evidence string,
 	confidence float32,
@@ -109,14 +111,15 @@ func (c *Consolidator) ConsolidateFact(
 	sourceSession *string,
 	sourceTurn *uuid.UUID,
 ) (uuid.UUID, Result, error) {
-	return ConsolidateFact(ctx, q, userID, memType, key, value, evidence, confidence,
+	return ConsolidateFact(ctx, q, scope, memType, key, value, evidence, confidence,
 		entities, embedding, sourceSession, sourceTurn)
 }
 
 func insertNew(
 	ctx context.Context,
 	q store.Querier,
-	userID, memType string,
+	scope identity.Scope,
+	memType string,
 	key *string,
 	value, evidence string,
 	confidence float32,
@@ -132,7 +135,7 @@ func insertNew(
 	}
 
 	id, err := store.InsertMemory(ctx, q, store.InsertMemoryParams{
-		UserID:        userID,
+		Scope:         scope,
 		Type:          memType,
 		Key:           key,
 		Value:         value,

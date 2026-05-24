@@ -2,6 +2,17 @@
 
 ---
 
+## v1.7.0 — Anonymous session support via identity scope
+
+- Introduces `identity.Scope`: resolves to user scope (`user_id`) for authenticated users or session scope (`session_id`) for anonymous users. All pipeline stages — extraction, consolidation, retrieval, opinion synthesis — now operate on `Scope` instead of a bare `user_id` string.
+- `POST /turns` with `user_id: null` now runs extraction and stores memories under session scope (`user_id = NULL`, `source_session = session_id`). Previously extraction was skipped, leaving anonymous turns with no derived knowledge.
+- `POST /recall` with `user_id: null` returns session-scoped context assembled from memories stored in that session. Previously returned empty string.
+- `POST /search` with `session_id` only uses scope-aware hybrid retrieval (semantic + keyword channels) instead of the previous direct session DB query. Anonymous sessions have no entity graph (graph channel returns empty; graceful degradation).
+- Schema: `memories.user_id` changed from `NOT NULL` to nullable (`0001_init.sql` edited; run with fresh volume). Added `idx_memories_session_anon` partial index on `(source_session, active) WHERE user_id IS NULL`. `Memory.UserID` Go field changed from `string` to `*string` to correctly represent NULL from the database.
+- Isolation: anonymous sessions are fully isolated — memories from session A are never returned in queries for session B. `DELETE /sessions/{id}` removes anonymous memories identically to authenticated sessions.
+
+---
+
 ## v1.6.2 — Component test hardening: /search and /memories
 
 - Audits `POST /search` and `GET /users/{id}/memories` against spec requirements; all 14 checked requirements pass with no implementation gaps found.

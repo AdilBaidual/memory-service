@@ -9,6 +9,8 @@ import (
 
 	"github.com/google/uuid"
 	pgvector "github.com/pgvector/pgvector-go"
+
+	"memory-service/internal/identity"
 )
 
 // OpinionViewWithEmbedding pairs an opinion_view Memory with its stored embedding
@@ -18,21 +20,21 @@ type OpinionViewWithEmbedding struct {
 	Embedding []float32 // nil when no embedding was stored
 }
 
-// GetRawOpinionsByKey returns all active raw opinions for a user+key,
+// GetRawOpinionsByKey returns all active raw opinions for the given scope+key,
 // ordered by created_at ASC (chronological order for synthesis prompts).
-func GetRawOpinionsByKey(ctx context.Context, q Querier, userID, key string) ([]Memory, error) {
+func GetRawOpinionsByKey(ctx context.Context, q Querier, scope identity.Scope, key string) ([]Memory, error) {
 	rows, err := q.Query(ctx, `
 		SELECT
 			id, user_id, type, key, value, evidence, confidence,
 			entities, valid_from, valid_to, supersedes, active,
 			source_session, source_turn, created_at, updated_at, metadata
 		FROM memories
-		WHERE user_id = $1
+		WHERE `+ScopeWhere(scope, 1)+`
 		  AND type    = 'opinion'::memory_type
 		  AND key     = $2
 		  AND active  = true
 		ORDER BY created_at ASC
-	`, userID, key)
+	`, scope.Value, key)
 	if err != nil {
 		return nil, fmt.Errorf("get raw opinions by key: %w", err)
 	}
@@ -61,11 +63,11 @@ func GetRawOpinionsByKey(ctx context.Context, q Querier, userID, key string) ([]
 }
 
 // UpsertOpinionView inserts a new opinion_view memory, superseding the previous
-// one for the same (user_id, key) if it exists. Caller wraps in a transaction
+// one for the same (scope, key) if it exists. Caller wraps in a transaction
 // for atomicity of the supersede+insert pair. Pass a non-nil embedding to
 // enable cosine-similarity filtering on future recall queries.
-func UpsertOpinionView(ctx context.Context, q Querier, userID, key, value string, sourceSession *string, embedding []float32) error {
-	existing, err := FindActiveByKey(ctx, q, userID, "opinion_view", key)
+func UpsertOpinionView(ctx context.Context, q Querier, scope identity.Scope, key, value string, sourceSession *string, embedding []float32) error {
+	existing, err := FindActiveByKeyScoped(ctx, q, scope, "opinion_view", key)
 	if err != nil {
 		return fmt.Errorf("find existing opinion_view: %w", err)
 	}
@@ -80,7 +82,7 @@ func UpsertOpinionView(ctx context.Context, q Querier, userID, key, value string
 	}
 
 	_, err = InsertMemory(ctx, q, InsertMemoryParams{
-		UserID:        userID,
+		Scope:         scope,
 		Type:          "opinion_view",
 		Key:           &key,
 		Value:         value,
@@ -98,9 +100,9 @@ func UpsertOpinionView(ctx context.Context, q Querier, userID, key, value string
 }
 
 // GetActiveOpinionViewsWithEmbeddings returns all active opinion_view memories
-// for a user along with their stored embeddings. Used by the recall pipeline
+// for the given scope along with their stored embeddings. Used by the recall pipeline
 // to filter opinion views by cosine similarity to the current query.
-func GetActiveOpinionViewsWithEmbeddings(ctx context.Context, q Querier, userID string) ([]OpinionViewWithEmbedding, error) {
+func GetActiveOpinionViewsWithEmbeddings(ctx context.Context, q Querier, scope identity.Scope) ([]OpinionViewWithEmbedding, error) {
 	rows, err := q.Query(ctx, `
 		SELECT
 			id, user_id, type, key, value, evidence, confidence,
@@ -108,11 +110,11 @@ func GetActiveOpinionViewsWithEmbeddings(ctx context.Context, q Querier, userID 
 			source_session, source_turn, created_at, updated_at, metadata,
 			embedding
 		FROM memories
-		WHERE user_id = $1
+		WHERE `+ScopeWhere(scope, 1)+`
 		  AND active  = true
 		  AND type    = 'opinion_view'::memory_type
 		ORDER BY confidence DESC, updated_at DESC
-	`, userID)
+	`, scope.Value)
 	if err != nil {
 		return nil, fmt.Errorf("get opinion views with embeddings: %w", err)
 	}
@@ -146,15 +148,15 @@ func GetActiveOpinionViewsWithEmbeddings(ctx context.Context, q Querier, userID 
 	return results, rows.Err()
 }
 
-// GetActiveMemoriesByTypes returns all active memories of given types for a user,
+// GetActiveMemoriesByTypes returns all active memories of given types for the given scope,
 // sorted by confidence DESC, updated_at DESC. Returns nil when types is empty.
-func GetActiveMemoriesByTypes(ctx context.Context, q Querier, userID string, types []string) ([]Memory, error) {
+func GetActiveMemoriesByTypes(ctx context.Context, q Querier, scope identity.Scope, types []string) ([]Memory, error) {
 	if len(types) == 0 {
 		return nil, nil
 	}
 
 	args := make([]any, 0, len(types)+1)
-	args = append(args, userID)
+	args = append(args, scope.Value)
 	placeholders := make([]string, len(types))
 	for i, t := range types {
 		args = append(args, t)
@@ -167,11 +169,11 @@ func GetActiveMemoriesByTypes(ctx context.Context, q Querier, userID string, typ
 			entities, valid_from, valid_to, supersedes, active,
 			source_session, source_turn, created_at, updated_at, metadata
 		FROM memories
-		WHERE user_id = $1
+		WHERE %s
 		  AND active  = true
 		  AND type IN (%s)
 		ORDER BY confidence DESC, updated_at DESC
-	`, strings.Join(placeholders, ", "))
+	`, ScopeWhere(scope, 1), strings.Join(placeholders, ", "))
 
 	rows, err := q.Query(ctx, query, args...)
 	if err != nil {

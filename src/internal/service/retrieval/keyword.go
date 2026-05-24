@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"memory-service/internal/adapters/store"
+	"memory-service/internal/identity"
 )
 
 // keywordSearch runs a Postgres full-text search against the value_tsv generated
@@ -17,11 +18,13 @@ import (
 func keywordSearch(
 	ctx context.Context,
 	q store.Querier,
-	userID string,
+	scope identity.Scope,
 	query string,
 	limit int,
 ) ([]store.ScoredMemory, error) {
-	const sql = `
+	// Build scope clause without table alias; memories is the only base table.
+	scopeClause := store.ScopeWhere(scope, 1)
+	sql := `
 		WITH qt AS (
 			SELECT string_agg(lexeme, ' | ') AS expr
 			FROM unnest(to_tsvector('english', $2))
@@ -32,14 +35,14 @@ func keywordSearch(
 			m.valid_from, m.valid_to, m.created_at, m.updated_at, m.metadata,
 			ts_rank_cd(m.value_tsv, to_tsquery('english', qt.expr)) AS score
 		FROM memories m, qt
-		WHERE m.user_id = $1
+		WHERE ` + scopeClause + `
 		  AND m.active  = true
 		  AND qt.expr   IS NOT NULL
 		  AND m.value_tsv @@ to_tsquery('english', qt.expr)
 		ORDER BY score DESC
 		LIMIT $3`
 
-	rows, err := q.Query(ctx, sql, userID, query, limit)
+	rows, err := q.Query(ctx, sql, scope.Value, query, limit)
 	if err != nil {
 		return nil, fmt.Errorf("keyword search query: %w", err)
 	}

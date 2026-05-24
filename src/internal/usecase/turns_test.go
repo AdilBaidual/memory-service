@@ -15,6 +15,7 @@ import (
 
 	"memory-service/internal/adapters/llm"
 	"memory-service/internal/adapters/store"
+	"memory-service/internal/identity"
 	"memory-service/internal/service/consolidation"
 	"memory-service/internal/service/extraction"
 )
@@ -129,7 +130,8 @@ type MockConsolidationService struct{ mock.Mock }
 func (m *MockConsolidationService) ConsolidateFact(
 	ctx context.Context,
 	q store.Querier,
-	userID, memType string,
+	scope identity.Scope,
+	memType string,
 	key *string,
 	value, evidence string,
 	confidence float32,
@@ -138,7 +140,7 @@ func (m *MockConsolidationService) ConsolidateFact(
 	sourceSession *string,
 	sourceTurn *uuid.UUID,
 ) (uuid.UUID, consolidation.Result, error) {
-	args := m.Called(ctx, q, userID, memType, key, value, evidence, confidence, entities, embedding, sourceSession, sourceTurn)
+	args := m.Called(ctx, q, scope, memType, key, value, evidence, confidence, entities, embedding, sourceSession, sourceTurn)
 	return args.Get(0).(uuid.UUID), args.Get(1).(consolidation.Result), args.Error(2)
 }
 
@@ -172,17 +174,20 @@ func newTestTurn(sessionID string, userID *string) TurnInput {
 
 // ---- tests ----
 
-func TestIngest_NoUserID_SkipsExtraction(t *testing.T) {
+func TestIngest_NoUserID_RunsExtractionWithSessionScope(t *testing.T) {
 	turnID := uuid.New()
-	pool := &mockTxPool{txs: []*mockTx{{id: turnID}}}
+	pool := &mockTxPool{txs: []*mockTx{{id: turnID}, {id: uuid.New()}}}
+
 	ext := new(MockExtractionService)
+	ext.On("Extract", mock.Anything, mock.Anything).Return([]extraction.Candidate{}, []llm.Relationship{}, nil)
 
 	uc := NewIngestTurnUsecase(pool, ext, new(MockConsolidationService), new(MockRelationshipsService), nil)
 	out, err := uc.Ingest(context.Background(), newTestTurn("s1", nil))
 
 	assert.NoError(t, err)
 	assert.Equal(t, turnID.String(), out.ID)
-	ext.AssertNotCalled(t, "Extract")
+	// extraction must run even with no user_id — session scope is used
+	ext.AssertCalled(t, "Extract", mock.Anything, mock.Anything)
 }
 
 func TestIngest_NilExtractor_SkipsExtraction(t *testing.T) {

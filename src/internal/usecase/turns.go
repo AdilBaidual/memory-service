@@ -13,6 +13,7 @@ import (
 
 	"memory-service/internal/adapters/llm"
 	"memory-service/internal/adapters/store"
+	"memory-service/internal/identity"
 	"memory-service/internal/service/consolidation"
 	"memory-service/internal/service/extraction"
 	"memory-service/internal/service/opinions"
@@ -36,7 +37,8 @@ type ConsolidationService interface {
 	ConsolidateFact(
 		ctx context.Context,
 		q store.Querier,
-		userID, memType string,
+		scope identity.Scope,
+		memType string,
 		key *string,
 		value, evidence string,
 		confidence float32,
@@ -138,21 +140,14 @@ func (uc *IngestTurnUsecase) Ingest(ctx context.Context, in TurnInput) (TurnOutp
 		return TurnOutput{}, fmt.Errorf("commit transaction: %w", err)
 	}
 
-	userID := ""
-	if in.UserID != nil {
-		userID = *in.UserID
-	}
+	scope := identity.Resolve(in.UserID, in.SessionID)
 	slog.Info("turn inserted",
 		"turn_id", turnID.String(),
 		"session_id", in.SessionID,
-		"user_id", userID,
+		"scope", scope.String(),
 		"message_count", len(in.Messages),
 	)
 
-	if in.UserID == nil {
-		return TurnOutput{ID: turnID.String()}, nil
-	}
-
-	uc.extractAndPersist(ctx, in, turnID)
+	uc.extractAndPersist(ctx, in, turnID, scope)
 	return TurnOutput{ID: turnID.String()}, nil
 }

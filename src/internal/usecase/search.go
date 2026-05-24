@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"memory-service/internal/adapters/store"
+	"memory-service/internal/identity"
 	"memory-service/internal/service/retrieval"
 )
 
@@ -49,19 +50,30 @@ func NewSearchUsecase(retriever Retriever, sessionQuerier SessionQuerier) *Searc
 func (uc *SearchUsecase) Search(ctx context.Context, in SearchInput) SearchOutput {
 	empty := SearchOutput{Results: []SearchResultItem{}}
 
-	switch {
-	case in.UserID != nil && in.SessionID != nil:
-		// User + session: retrieve for user, filter to session.
-		if uc.retriever == nil {
-			return empty
-		}
+	// Resolve session_id to *string for Resolve (expects a string, not *string)
+	sessionID := ""
+	if in.SessionID != nil {
+		sessionID = *in.SessionID
+	}
+
+	scope := identity.Resolve(in.UserID, sessionID)
+	if scope.Value == "" {
+		return empty
+	}
+
+	if uc.retriever == nil {
+		return empty
+	}
+
+	// When both user_id and session_id are provided: retrieve for user, filter to session.
+	if in.UserID != nil && in.SessionID != nil {
 		memories, err := uc.retriever.Retrieve(ctx, retrieval.RetrieveParams{
-			Query:  in.Query,
-			UserID: *in.UserID,
-			Limit:  in.Limit * 3, // over-fetch to compensate for session filter
+			Query: in.Query,
+			Scope: scope,
+			Limit: in.Limit * 3, // over-fetch to compensate for session filter
 		})
 		if err != nil {
-			slog.Warn("search retrieval failed", "error", err, "user_id", *in.UserID)
+			slog.Warn("search retrieval failed", "error", err, "scope", scope.String())
 			return empty
 		}
 		var filtered []retrieval.RetrievedMemory
@@ -74,38 +86,19 @@ func (uc *SearchUsecase) Search(ctx context.Context, in SearchInput) SearchOutpu
 			}
 		}
 		return SearchOutput{Results: toSearchResults(filtered)}
+	}
 
-	case in.UserID != nil:
-		// User only: standard hybrid retrieval.
-		if uc.retriever == nil {
-			return empty
-		}
-		memories, err := uc.retriever.Retrieve(ctx, retrieval.RetrieveParams{
-			Query:  in.Query,
-			UserID: *in.UserID,
-			Limit:  in.Limit,
-		})
-		if err != nil {
-			slog.Warn("search retrieval failed", "error", err, "user_id", *in.UserID)
-			return empty
-		}
-		return SearchOutput{Results: toSearchResults(memories)}
-
-	case in.SessionID != nil:
-		// Session only: direct DB query, no embedding needed.
-		if uc.sessionQuerier == nil {
-			return empty
-		}
-		mems, err := uc.sessionQuerier.GetMemoriesBySession(ctx, *in.SessionID, in.Limit)
-		if err != nil {
-			slog.Warn("session search failed", "error", err, "session_id", *in.SessionID)
-			return empty
-		}
-		return SearchOutput{Results: toSessionResults(mems)}
-
-	default:
+	// Standard hybrid retrieval (user-only or session-only scope).
+	memories, err := uc.retriever.Retrieve(ctx, retrieval.RetrieveParams{
+		Query: in.Query,
+		Scope: scope,
+		Limit: in.Limit,
+	})
+	if err != nil {
+		slog.Warn("search retrieval failed", "error", err, "scope", scope.String())
 		return empty
 	}
+	return SearchOutput{Results: toSearchResults(memories)}
 }
 
 func toSearchResults(memories []retrieval.RetrievedMemory) []SearchResultItem {

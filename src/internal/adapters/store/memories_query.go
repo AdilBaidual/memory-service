@@ -8,9 +8,11 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	pgvector "github.com/pgvector/pgvector-go"
+
+	"memory-service/internal/identity"
 )
 
-func GetTopKByCosine(ctx context.Context, q Querier, userID string, queryEmbedding []float32, k int) ([]ScoredMemory, error) {
+func GetTopKByCosine(ctx context.Context, q Querier, scope identity.Scope, queryEmbedding []float32, k int) ([]ScoredMemory, error) {
 	if len(queryEmbedding) == 0 {
 		return nil, fmt.Errorf("query embedding must be non-empty")
 	}
@@ -21,12 +23,12 @@ func GetTopKByCosine(ctx context.Context, q Querier, userID string, queryEmbeddi
 			valid_from, valid_to, created_at, updated_at, metadata,
 			1 - (embedding <=> $2) AS score
 		FROM memories
-		WHERE user_id = $1
+		WHERE `+ScopeWhere(scope, 1)+`
 		  AND active = true
 		  AND embedding IS NOT NULL
 		ORDER BY embedding <=> $2
 		LIMIT $3
-	`, userID, pgvector.NewVector(queryEmbedding), k)
+	`, scope.Value, pgvector.NewVector(queryEmbedding), k)
 	if err != nil {
 		return nil, fmt.Errorf("cosine search: %w", err)
 	}
@@ -60,16 +62,16 @@ func GetTopKByCosine(ctx context.Context, q Querier, userID string, queryEmbeddi
 // GetCanonicalKeyValues returns key+value pairs for active fact and preference memories.
 // Returning the current value alongside the key lets the extraction LLM decide whether
 // new information is the same type (reuse key) or a different type (new key).
-func GetCanonicalKeyValues(ctx context.Context, q Querier, userID string) ([]struct{ Key, Value string }, error) {
+func GetCanonicalKeyValues(ctx context.Context, q Querier, scope identity.Scope) ([]struct{ Key, Value string }, error) {
 	rows, err := q.Query(ctx, `
 		SELECT DISTINCT ON (key) key, value
 		FROM memories
-		WHERE user_id = $1
+		WHERE `+ScopeWhere(scope, 1)+`
 		  AND active = true
 		  AND key IS NOT NULL
 		  AND type IN ('fact', 'preference')
 		ORDER BY key, updated_at DESC
-	`, userID)
+	`, scope.Value)
 	if err != nil {
 		return nil, fmt.Errorf("get canonical key values: %w", err)
 	}
@@ -86,15 +88,15 @@ func GetCanonicalKeyValues(ctx context.Context, q Querier, userID string) ([]str
 	return pairs, rows.Err()
 }
 
-func GetOpinionTopics(ctx context.Context, q Querier, userID string) ([]string, error) {
+func GetOpinionTopics(ctx context.Context, q Querier, scope identity.Scope) ([]string, error) {
 	rows, err := q.Query(ctx, `
 		SELECT DISTINCT key
 		FROM memories
-		WHERE user_id = $1
+		WHERE `+ScopeWhere(scope, 1)+`
 		  AND key IS NOT NULL
 		  AND type IN ('opinion', 'opinion_view')
 		ORDER BY key
-	`, userID)
+	`, scope.Value)
 	if err != nil {
 		return nil, fmt.Errorf("get opinion topics: %w", err)
 	}
@@ -111,6 +113,42 @@ func GetOpinionTopics(ctx context.Context, q Querier, userID string) ([]string, 
 	return topics, rows.Err()
 }
 
+// FindActiveByKeyScoped returns (nil, nil) when no row is found — NOT an error.
+func FindActiveByKeyScoped(ctx context.Context, q Querier, scope identity.Scope, memType, key string) (*Memory, error) {
+	var m Memory
+	err := q.QueryRow(ctx, `
+		SELECT
+			id, user_id, type, key, value, evidence, confidence,
+			entities, valid_from, valid_to, supersedes, active,
+			source_session, source_turn, created_at, updated_at, metadata
+		FROM memories
+		WHERE `+ScopeWhere(scope, 1)+`
+		  AND type    = $2::memory_type
+		  AND key     = $3
+		  AND active  = true
+		LIMIT 1
+	`, scope.Value, memType, key).Scan(
+		&m.ID, &m.UserID, &m.Type, &m.Key, &m.Value, &m.Evidence,
+		&m.Confidence, &m.Entities, &m.ValidFrom, &m.ValidTo,
+		&m.Supersedes, &m.Active, &m.SourceSession, &m.SourceTurn,
+		&m.CreatedAt, &m.UpdatedAt, &m.Metadata,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("find active by key: %w", err)
+	}
+	if m.Entities == nil {
+		m.Entities = json.RawMessage("[]")
+	}
+	if m.Metadata == nil {
+		m.Metadata = json.RawMessage("{}")
+	}
+	return &m, nil
+}
+
+// FindActiveByKey looks up by user_id only (user-scoped path, kept for internal use).
 // Returns (nil, nil) when no row is found — NOT an error.
 func FindActiveByKey(ctx context.Context, q Querier, userID, memType, key string) (*Memory, error) {
 	var m Memory

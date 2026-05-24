@@ -86,7 +86,7 @@ func (r *HybridRetriever) Retrieve(
 					return
 				}
 				data, err := store.GetTopKByCosine(
-					chCtx, r.pool, params.UserID, emb, candidatesPerChannel)
+					chCtx, r.pool, params.Scope, emb, candidatesPerChannel)
 				done <- scoredResult{data, err}
 			}()
 			select {
@@ -110,7 +110,7 @@ func (r *HybridRetriever) Retrieve(
 		done := make(chan scoredResult, 1)
 		go func() {
 			data, err := keywordSearch(
-				chCtx, r.pool, params.UserID, params.Query, candidatesPerChannel)
+				chCtx, r.pool, params.Scope, params.Query, candidatesPerChannel)
 			done <- scoredResult{data, err}
 		}()
 		select {
@@ -133,7 +133,7 @@ func (r *HybridRetriever) Retrieve(
 		done := make(chan scoredResult, 1)
 		go func() {
 			data, err := graphSearch(
-				chCtx, r.pool, params.UserID, params.Query, candidatesPerChannel)
+				chCtx, r.pool, params.Scope, params.Query, candidatesPerChannel)
 			done <- scoredResult{data, err}
 		}()
 		select {

@@ -9,13 +9,14 @@ import (
 
 	"memory-service/internal/adapters/store"
 	assembler "memory-service/internal/service/context"
+	"memory-service/internal/identity"
 	"memory-service/internal/service/retrieval"
 )
 
 // StableMemoryLoader loads pre-queried stable facts, events, and opinion views.
 type StableMemoryLoader interface {
-	GetActiveMemoriesByTypes(ctx context.Context, userID string, types []string) ([]store.Memory, error)
-	GetActiveOpinionViewsWithEmbeddings(ctx context.Context, userID string) ([]store.OpinionViewWithEmbedding, error)
+	GetActiveMemoriesByTypes(ctx context.Context, scope identity.Scope, types []string) ([]store.Memory, error)
+	GetActiveOpinionViewsWithEmbeddings(ctx context.Context, scope identity.Scope) ([]store.OpinionViewWithEmbedding, error)
 }
 
 // QueryEmbedder embeds a text string into a float vector.
@@ -61,17 +62,17 @@ func NewRecallUsecase(retriever Retriever, loader StableMemoryLoader, embedder Q
 func (uc *RecallUsecase) Recall(ctx context.Context, in RecallInput) RecallOutput {
 	empty := RecallOutput{Context: "", Citations: []Citation{}}
 
-	if in.UserID == nil {
+	scope := identity.Resolve(in.UserID, in.SessionID)
+	if scope.Value == "" {
 		return empty
 	}
-	userID := *in.UserID
 
 	// Embed query once; used for opinion_view filtering.
 	var queryEmbedding []float32
 	if uc.embedder != nil {
 		emb, err := uc.embedder.Embed(ctx, in.Query)
 		if err != nil {
-			slog.Warn("query embedding failed, skipping opinion filter", "error", err, "user_id", userID)
+			slog.Warn("query embedding failed, skipping opinion filter", "error", err, "scope", scope.String())
 		} else {
 			queryEmbedding = emb
 		}
@@ -82,21 +83,21 @@ func (uc *RecallUsecase) Recall(ctx context.Context, in RecallInput) RecallOutpu
 	var opinionViews []store.Memory
 	if uc.loader != nil {
 		var err error
-		stableFacts, err = uc.loader.GetActiveMemoriesByTypes(ctx, userID, []string{"fact", "preference"})
+		stableFacts, err = uc.loader.GetActiveMemoriesByTypes(ctx, scope, []string{"fact", "preference"})
 		if err != nil {
-			slog.Warn("load stable facts failed", "error", err, "user_id", userID)
+			slog.Warn("load stable facts failed", "error", err, "scope", scope.String())
 		}
 
-		ovWithEmb, err := uc.loader.GetActiveOpinionViewsWithEmbeddings(ctx, userID)
+		ovWithEmb, err := uc.loader.GetActiveOpinionViewsWithEmbeddings(ctx, scope)
 		if err != nil {
-			slog.Warn("load opinion views failed", "error", err, "user_id", userID)
+			slog.Warn("load opinion views failed", "error", err, "scope", scope.String())
 		} else {
 			opinionViews = filterOpinionViewsByRelevance(ovWithEmb, queryEmbedding)
 		}
 
-		recentEvents, err = uc.loader.GetActiveMemoriesByTypes(ctx, userID, []string{"event"})
+		recentEvents, err = uc.loader.GetActiveMemoriesByTypes(ctx, scope, []string{"event"})
 		if err != nil {
-			slog.Warn("load recent events failed", "error", err, "user_id", userID)
+			slog.Warn("load recent events failed", "error", err, "scope", scope.String())
 		}
 	}
 
@@ -105,12 +106,12 @@ func (uc *RecallUsecase) Recall(ctx context.Context, in RecallInput) RecallOutpu
 	if uc.retriever != nil {
 		var err error
 		retrieved, err = uc.retriever.Retrieve(ctx, retrieval.RetrieveParams{
-			Query:  in.Query,
-			UserID: userID,
-			Limit:  25,
+			Query: in.Query,
+			Scope: scope,
+			Limit: 25,
 		})
 		if err != nil {
-			slog.Warn("retrieval failed", "error", err, "user_id", userID)
+			slog.Warn("retrieval failed", "error", err, "scope", scope.String())
 		}
 	}
 
@@ -120,8 +121,14 @@ func (uc *RecallUsecase) Recall(ctx context.Context, in RecallInput) RecallOutpu
 		retrievedMems[i] = r.Memory
 	}
 
+	// assembler.Assemble uses UserID only for context header; use scope.Value.
+	userIDForAssembler := scope.Value
+	if !scope.IsUser() {
+		userIDForAssembler = "" // anonymous: omit from context header
+	}
+
 	out := assembler.Assemble(assembler.AssemblyInput{
-		UserID:        userID,
+		UserID:        userIDForAssembler,
 		Query:         in.Query,
 		MaxTokens:     in.MaxTokens,
 		StableFacts:   stableFacts,

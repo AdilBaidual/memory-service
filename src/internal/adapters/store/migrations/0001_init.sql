@@ -52,7 +52,7 @@ CREATE TRIGGER turns_content_trigger
 -- ============================================================
 CREATE TABLE memories (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id         TEXT NOT NULL,
+    user_id         TEXT,
     type            memory_type NOT NULL,
     key             TEXT,
     value           TEXT NOT NULL,
@@ -140,3 +140,8 @@ CREATE TABLE entity_relationships (
 CREATE INDEX idx_rel_subject_pred ON entity_relationships(user_id, subject_entity, predicate, created_at DESC);
 CREATE INDEX idx_rel_object_pred  ON entity_relationships(user_id, object_entity, predicate, created_at DESC);
 CREATE INDEX idx_rel_source       ON entity_relationships(source_memory_id);
+
+-- Session-scoped indexes for anonymous memory queries
+CREATE INDEX IF NOT EXISTS idx_memories_session_anon
+    ON memories(source_session, active)
+    WHERE user_id IS NULL;
