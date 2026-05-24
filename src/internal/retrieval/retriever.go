@@ -1,5 +1,3 @@
-// Package retrieval implements the hybrid retrieval pipeline: semantic, keyword,
-// graph, and temporal channels fused via Reciprocal Rank Fusion and cross-encoder reranking.
 package retrieval
 
 import (
@@ -21,8 +19,6 @@ type RetrieveParams struct {
 }
 
 // Retriever is the interface for the retrieval pipeline.
-// Stage 3: only the semantic (cosine) channel is implemented.
-// Stage 4+: adds FTS, graph traversal, RRF fusion, and cross-encoder reranking.
 type Retriever interface {
 	// Retrieve returns up to Limit memories relevant to Query for the given user.
 	Retrieve(ctx context.Context, params RetrieveParams) ([]RetrievedMemory, error)

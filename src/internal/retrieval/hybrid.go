@@ -1,4 +1,3 @@
-// Package retrieval implements the hybrid retrieval pipeline.
 package retrieval
 
 import (
@@ -16,7 +15,7 @@ import (
 const candidatesPerChannel = 30
 
 // HybridRetriever runs semantic (cosine), keyword (FTS), and graph channels
-// in parallel and fuses results with RRF. Stage 5: three channels.
+// in parallel and fuses results with RRF.
 type HybridRetriever struct {
 	pool   storage.Querier
 	client *llm.Client

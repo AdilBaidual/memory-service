@@ -1,4 +1,3 @@
-// Package api contains the HTTP router, handlers, and middleware for the memory service.
 package api
 
 import (
@@ -53,8 +52,8 @@ func NewRecallHandler(pool *pgxpool.Pool, ret retrieval.Retriever) http.HandlerF
 			return
 		}
 
-		slog.Debug("[DEBUG] GET RECALL RESULT", "request_id", reqID, "memories", memories)
-		slog.Debug("[DEBUG] GET RECALL RESPONSE", "request_id", reqID, "context", buildSimpleContext(memories), "citations", buildCitations(memories))
+		slog.Debug("recall result", "request_id", reqID, "memories", memories)
+		slog.Debug("recall response", "request_id", reqID, "context", buildSimpleContext(memories), "citations", buildCitations(memories))
 
 		writeJSON(w, http.StatusOK, RecallResponse{
 			Context:   buildSimpleContext(memories),

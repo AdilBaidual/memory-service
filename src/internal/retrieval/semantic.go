@@ -1,4 +1,3 @@
-// Package retrieval implements the hybrid retrieval pipeline.
 package retrieval
 
 import (
@@ -10,7 +9,6 @@ import (
 )
 
 // SemanticRetriever retrieves memories using cosine similarity on OpenAI embeddings.
-// This is the Stage 3 baseline retriever — intentionally vanilla (no fusion, no reranking).
 type SemanticRetriever struct {
 	pool   storage.Querier
 	client *llm.Client

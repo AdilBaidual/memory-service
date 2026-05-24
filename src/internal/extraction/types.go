@@ -3,7 +3,6 @@
 package extraction
 
 // Candidate is a memory candidate produced by extraction.
-// In Stage 3 all candidates are inserted as ADD (no consolidation).
 type Candidate struct {
 	Type       string   // "fact" | "preference" | "opinion" | "event"
 	Key        *string  // nil for events and keyless items

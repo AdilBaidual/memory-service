@@ -1,4 +1,3 @@
-// Package api contains the HTTP router, handlers, and middleware for the memory service.
 package api
 
 import (
@@ -297,13 +296,3 @@ func sanitizeTurnMessages(msgs []Message) {
 	}
 }
 
-func marshalEntities(entities []string) json.RawMessage {
-	if len(entities) == 0 {
-		return json.RawMessage("[]")
-	}
-	b, err := json.Marshal(entities)
-	if err != nil {
-		return json.RawMessage("[]")
-	}
-	return json.RawMessage(b)
-}

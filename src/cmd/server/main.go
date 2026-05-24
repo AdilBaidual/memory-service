@@ -72,7 +72,6 @@ func main() {
 	// Extractor wraps the LLM client for memory extraction.
 	ext := extraction.New(llmClient)
 
-	// Retriever — Stage 4: hybrid semantic + FTS fused via RRF.
 	ret := retrieval.NewHybridRetriever(pool, llmClient)
 
 	handler := api.NewRouter(pool, cfg, ext, ret)

@@ -136,9 +136,10 @@ func computeConfidence(evidence string) float32 {
 // normalizeType coerces the LLM-returned type to one of the valid enum values.
 // Falls back to "fact" on anything unexpected.
 func normalizeType(s string) string {
-	switch strings.ToLower(strings.TrimSpace(s)) {
+	lower := strings.ToLower(strings.TrimSpace(s))
+	switch lower {
 	case "fact", "preference", "opinion", "event":
-		return strings.ToLower(strings.TrimSpace(s))
+		return lower
 	}
 	return "fact"
 }
