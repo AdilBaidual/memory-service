@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	openai "github.com/sashabaranov/go-openai"
@@ -57,7 +58,8 @@ func (c *Client) Embed(ctx context.Context, text string) ([]float32, error) {
 
 // llmExtractionOutput is the JSON schema type for Structured Output (strict mode).
 type llmExtractionOutput struct {
-	Items []llmExtractedItem `json:"items"`
+	Items         []llmExtractedItem `json:"items"`
+	Relationships []llmRelationship  `json:"relationships"`
 }
 
 type llmExtractedItem struct {
@@ -66,6 +68,12 @@ type llmExtractedItem struct {
 	Value    string   `json:"value"`
 	Evidence string   `json:"evidence"`
 	Entities []string `json:"entities"`
+}
+
+type llmRelationship struct {
+	Subject   string `json:"subject"`
+	Predicate string `json:"predicate"`
+	Object    string `json:"object"`
 }
 
 // Extract calls gpt-4o-mini with Structured Output to extract candidate
@@ -130,6 +138,23 @@ func (c *Client) doExtract(ctx context.Context, req ExtractionRequest) (*Extract
 			Entities: item.Entities,
 		})
 	}
+	for _, rel := range output.Relationships {
+		s := strings.TrimSpace(rel.Subject)
+		p := strings.TrimSpace(rel.Predicate)
+		o := strings.TrimSpace(rel.Object)
+		if s == "" || p == "" || o == "" {
+			continue
+		}
+		// Drop tautological triplets (X, P, X) — always a model error.
+		if strings.EqualFold(s, o) {
+			continue
+		}
+		result.Relationships = append(result.Relationships, Relationship{
+			Subject:   s,
+			Predicate: p,
+			Object:    o,
+		})
+	}
 	return result, nil
 }
 
@@ -165,8 +190,21 @@ func extractionSchema() *jsonschema.Definition {
 					AdditionalProperties: false,
 				},
 			},
+			"relationships": {
+				Type: jsonschema.Array,
+				Items: &jsonschema.Definition{
+					Type: jsonschema.Object,
+					Properties: map[string]jsonschema.Definition{
+						"subject":   strDef,
+						"predicate": strDef,
+						"object":    strDef,
+					},
+					Required:             []string{"subject", "predicate", "object"},
+					AdditionalProperties: false,
+				},
+			},
 		},
-		Required:             []string{"items"},
+		Required:             []string{"items", "relationships"},
 		AdditionalProperties: false,
 	}
 }

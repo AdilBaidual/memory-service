@@ -11,6 +11,7 @@ import (
 	"time"
 
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"memory-service/internal/consolidation"
@@ -103,13 +104,13 @@ func NewTurnsHandler(pool *pgxpool.Pool, ext *extraction.Extractor) http.Handler
 
 		llmCtx, llmCancel := context.WithTimeout(ctx, 30*time.Second)
 		defer llmCancel()
-		candidates, err := ext.Extract(llmCtx, pool, *req.UserID, turnMsgs)
+		candidates, relationships, err := ext.Extract(llmCtx, pool, *req.UserID, turnMsgs)
 		if err != nil {
 			slog.Warn("extraction failed", "error", err, "request_id", reqID)
 			writeJSON(w, http.StatusCreated, buildTurnResponse(turnID.String()))
 			return
 		}
-		if len(candidates) == 0 {
+		if len(candidates) == 0 && len(relationships) == 0 {
 			slog.Info("no candidates extracted", "request_id", reqID)
 			writeJSON(w, http.StatusCreated, buildTurnResponse(turnID.String()))
 			return
@@ -125,6 +126,7 @@ func NewTurnsHandler(pool *pgxpool.Pool, ext *extraction.Extractor) http.Handler
 		defer tx2.Rollback(ctx) //nolint:errcheck
 
 		inserted := 0
+		var lastMemoryID uuid.UUID
 		for _, c := range candidates {
 			if ctx.Err() != nil {
 				break
@@ -140,7 +142,7 @@ func NewTurnsHandler(pool *pgxpool.Pool, ext *extraction.Extractor) http.Handler
 
 			switch c.Type {
 			case "fact", "preference":
-				_, result, consErr := consolidation.ConsolidateFact(ctx, tx2,
+				id, result, consErr := consolidation.ConsolidateFact(ctx, tx2,
 					*req.UserID, c.Type, c.Key, c.Value, c.Evidence, c.Confidence,
 					c.Entities, embedding, &req.SessionID, &turnID,
 				)
@@ -149,13 +151,16 @@ func NewTurnsHandler(pool *pgxpool.Pool, ext *extraction.Extractor) http.Handler
 						"type", c.Type, "key", c.Key, "err", consErr, "request_id", reqID)
 					continue
 				}
+				if result != consolidation.ResultNOOP {
+					lastMemoryID = id
+				}
 				inserted++
 				slog.Debug("memory consolidated",
 					"result", result.String(), "type", c.Type, "key", c.Key, "user_id", *req.UserID)
 
 			case "opinion", "event":
 				entJSON, _ := json.Marshal(c.Entities)
-				_, insErr := storage.InsertMemory(ctx, tx2, storage.InsertMemoryParams{
+				id, insErr := storage.InsertMemory(ctx, tx2, storage.InsertMemoryParams{
 					UserID:        *req.UserID,
 					Type:          c.Type,
 					Key:           c.Key,
@@ -173,8 +178,29 @@ func NewTurnsHandler(pool *pgxpool.Pool, ext *extraction.Extractor) http.Handler
 						"type", c.Type, "key", c.Key, "err", insErr, "request_id", reqID)
 					continue
 				}
+				lastMemoryID = id
 				inserted++
 				slog.Debug("memory inserted", "type", c.Type, "key", c.Key, "user_id", *req.UserID)
+			}
+		}
+
+		// Process relationship triplets after all memories are saved.
+		if len(relationships) > 0 {
+			if err := consolidation.ProcessRelationships(
+				ctx, tx2,
+				*req.UserID,
+				relationships,
+				lastMemoryID,
+			); err != nil {
+				// Non-fatal: relationships are navigation-only data.
+				slog.Warn("relationship processing failed",
+					"err", err,
+					"user_id", *req.UserID,
+					"count", len(relationships))
+			} else {
+				slog.Debug("relationships processed",
+					"count", len(relationships),
+					"user_id", *req.UserID)
 			}
 		}
 

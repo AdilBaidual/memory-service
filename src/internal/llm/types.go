@@ -12,9 +12,17 @@ type ExtractionRequest struct {
 	ExistingOpinionTopics []string
 }
 
+// Relationship is an entity triplet extracted from a conversation.
+type Relationship struct {
+	Subject   string // e.g. "user", "Luna", "Notion"
+	Predicate string // e.g. "lives_in", "has_pet", "works_at"
+	Object    string // e.g. "Amsterdam", "Luna", "Notion"
+}
+
 // ExtractionResult is the parsed output of the extraction LLM call.
 type ExtractionResult struct {
-	Items []ExtractedItem
+	Items         []ExtractedItem
+	Relationships []Relationship
 }
 
 // ExtractedItem is a single memory candidate returned by extraction.

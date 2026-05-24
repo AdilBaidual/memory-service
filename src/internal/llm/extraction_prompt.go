@@ -129,7 +129,94 @@ BEFORE RETURNING — verify:
 4. Are events that imply facts converted to facts instead?
 5. Did you extract incidental personal facts from questions?
 
-Return items: [] if there is truly nothing worth extracting.`
+Return items: [] if there is truly nothing worth extracting.
+
+RELATIONSHIPS
+Extract entity triplets (subject, predicate, object) for facts only.
+Do not extract relationships for opinions or preferences.
+
+STEP 1 — Determine the subject
+
+ALWAYS ask this question first: "Is this a fact about something the
+user owns, has, or is related to?" If YES, subject MUST be "user".
+
+Use "user" as subject for ALL of the following:
+- Things the user owns or possesses: "my car", "my house", "I have a dog"
+- Pets and animals the user has: "my cat", "I have a fish named Bubbles"
+- Family and relationships: "my wife", "my brother", "my mother"
+- Employment: "I work at", "my job is", "I joined"
+- Location and residence: "I live in", "I moved to", "my apartment is in"
+- Anything with "my" or "I" indicating possession or relation
+
+Use the entity's own name as subject ONLY for facts ABOUT that entity
+itself, independent of the user's relationship to it.
+
+STEP 2 — Extract ownership first, then entity facts separately
+
+CRITICAL PET / OWNERSHIP PATTERN:
+When the user mentions a named pet, animal, or possession:
+  1. FIRST extract: (user, has_pet, Name) or (user, owns, Name)
+  2. THEN extract: (Name, is_a, type) if the type is stated
+  NEVER extract: (type, is_a, Name) — this is always wrong.
+
+  "My cat Luna is a tabby, very chatty"
+  RIGHT:  (user, has_pet, Luna)
+          (Luna, is_a, tabby)
+  WRONG:  (cat, is_a, Luna)  ← NEVER. This loses the user connection.
+
+  "I have a dog named Max"
+  RIGHT:  (user, has_pet, Max)
+          (Max, is_a, dog)
+  WRONG:  (dog, is_a, Max)  ← NEVER.
+
+  "Luna is my cat"
+  RIGHT:  (user, has_pet, Luna)
+          (Luna, is_a, cat)
+  WRONG:  (cat, is_a, Luna)  ← NEVER.
+
+OBJECT CONFUSION — the object is the TYPE WORD, never the subject repeated:
+  The object in an is_a relationship is the category/breed/type word.
+  It does NOT have to be a proper noun or named entity.
+  Ask yourself: "What type/category IS this thing?" — that answer is the object.
+
+  "She's a tabby"
+  RIGHT:  (Luna, is_a, tabby)      ← answer to "what type is Luna?" = "tabby"
+  WRONG:  (Luna, is_a, Luna)       ← NEVER. The subject cannot be its own object.
+
+  "Max is a golden retriever"
+  RIGHT:  (Max, is_a, golden retriever)
+  WRONG:  (Max, is_a, Max)         ← NEVER.
+
+  "Herbert is a sourdough starter"
+  RIGHT:  (Herbert, is_a, sourdough starter)
+  WRONG:  (Herbert, is_a, Herbert) ← NEVER.
+
+COMPLETENESS — extract a relationship for EVERY fact that names an entity:
+  "User has a cat named Luna"  → (user, has_pet, Luna)
+    ← do not skip this relationship just because (Luna, is_a, tabby)
+       is also extracted; both relationships must appear
+
+More examples:
+  "I work at Notion"          → (user, works_at, Notion)
+  "My sister lives in Berlin" → (user, has_sibling, sister_name)
+  "I moved to Amsterdam"      → (user, lives_in, Amsterdam)
+  "Notion is in New York"     → (Notion, located_in, New York)
+    ← Notion is subject because this is a fact ABOUT Notion,
+      not about the user's relationship to Notion
+
+predicate: snake_case verb phrase. Use canonical forms:
+  location:   lives_in, located_in, moved_to, moved_from
+  employment: works_at, worked_at, founded
+  ownership:  owns, has_pet, has_car
+  family:     has_partner, has_child, has_parent, has_sibling
+  identity:   is_a, named
+  social:     knows, met
+  Create new predicates freely when none of the above fit.
+
+object: the target entity. Use proper names or concise descriptions.
+
+Only extract relationships for facts clearly stated or strongly implied.
+Return empty relationships array [] if none found.`
 
 func buildExtractionPrompt(req ExtractionRequest) string {
 	var sb strings.Builder

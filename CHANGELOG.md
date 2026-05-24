@@ -5,7 +5,34 @@ Entries are in reverse chronological order.
 
 ---
 
-## v1.2.2 — Extraction prompt overhaul
+## v1.3.0 — Entity graph extraction and 2-hop traversal
+
+- LLM extraction prompt extended to return relationship triplets (subject, predicate, object) alongside items
+- Triplets persist to entity_relationships (append-only); entities upserted in entities; entity_mentions links each memory to the entities it references
+- Third retrieval channel: 2-hop CTE — hop 1 fetches memories directly linked to query entities via entity_mentions (score 1.0), hop 2 follows entity_relationships edges to neighbour entities (score 0.5); fused into existing semantic + FTS RRF pipeline
+- Query entities extracted by capitalized-word heuristic; predicate synonym groups in internal/predicates/groups.go
+- Relationship writes are non-fatal — a write error logs a warning without rolling back the memory transaction
+- Fixes relationship subject inversion for pet/ownership sentences: LLM was extracting (cat, is_a, Luna) instead of (user, has_pet, Luna). Added explicit two-step extraction pattern with WRONG/RIGHT examples plus OBJECT CONFUSION rule (object of is_a must be the type word, not the subject repeated). Added tautological triplet filter in Go: any (X, P, X) relationship is silently dropped as a model error.
+
+Fixture delta vs v1.2.0:
+
+    basic_facts:      3/3 (100%) — unchanged
+    fact_evolution:   1/1 (100%) — unchanged
+    multi_hop:        0/1  (0%)  — entity graph now correctly populated:
+                                   (user, has_pet, Luna) and (user, lives_in,
+                                   Amsterdam) confirmed in entity_relationships.
+                                   Fixture still fails because noise travel
+                                   sessions supersede the Amsterdam memory
+                                   (active=false) before the graph probe runs;
+                                   the consolidation layer, not the graph, is
+                                   the blocking issue.
+    noise_resistance: 0 violations — unchanged
+    opinion_arc:      1/1 (100%) — unchanged
+    OVERALL:          5/6 (83%), 2 violations
+
+---
+
+## v1.2.0 — Extraction prompt overhaul
 
 Rewrites the extraction system prompt with explicit rules for self-contained
 values (all pronouns replaced with "User" or the named entity), specificity
@@ -19,13 +46,14 @@ a current state are converted to facts rather than duplicated. A pre-output
 checklist instructs the model to re-scan for missed topics before returning.
 
 Fixture results after prompt change:
-  basic_facts:      3/3 (100%)
-  fact_evolution:   1/1 (100%), 1 violation — "Stripe" persists (bi-temporal history, expected)
-  multi_hop:        0/1 (0%) — graph channel not yet implemented
-  noise_resistance: 0 violations
-  opinion_arc:      1/1 (100%), 1 violation — "game changer" present (opinion_view not yet implemented)
-  OVERALL:          5/6 (83%), 2 violations
-  JUDGE:            5/6 assertions correct (83%), 1 failure — opinion evolution arc not yet captured
+
+    basic_facts:      3/3 (100%)
+    fact_evolution:   1/1 (100%), 1 violation — "Stripe" persists (bi-temporal history, expected)
+    multi_hop:        0/1 (0%) — graph channel not yet implemented
+    noise_resistance: 0 violations
+    opinion_arc:      1/1 (100%), 1 violation — "game changer" present (opinion_view not yet implemented)
+    OVERALL:          5/6 (83%), 2 violations
+    JUDGE:            5/6 assertions correct (83%), 1 failure — opinion evolution arc not yet captured
 
 Results are identical to v1.1.4. The prompt changes are quality improvements
 for edge cases not covered by the current fixture set; the measurable delta will
@@ -58,12 +86,13 @@ for any evening-location probe because the Amsterdam memory contains no "evening
 signal. The scenario now correctly fails without the entity graph channel.
 
 Fixture results:
-  basic_facts:      3/3 (100%)
-  fact_evolution:   1/1 (100%), 1 violation — "Stripe" persists
-  multi_hop:        0/1 (0%) — correctly fails; graph channel not yet implemented
-  noise_resistance: 0 violations
-  opinion_arc:      1/1 (100%), 1 violation — "game changer" present
-  OVERALL:          5/6 (83%), 2 violations
+
+    basic_facts:      3/3 (100%)
+    fact_evolution:   1/1 (100%), 1 violation — "Stripe" persists
+    multi_hop:        0/1 (0%) — correctly fails; graph channel not yet implemented
+    noise_resistance: 0 violations
+    opinion_arc:      1/1 (100%), 1 violation — "game changer" present
+    OVERALL:          5/6 (83%), 2 violations
 
 The multi_hop result dropped from the 1/1 reported in v1.1.3 — that was a false
 pass caused by insufficient noise. The opinion_arc violation returned for the
@@ -116,12 +145,13 @@ is preserved: entities are user-scoped and may span multiple sessions.
 - Each channel fetches up to 30 candidates before fusion; top-10 returned to caller
 
 Fixture results:
-  basic_facts:      2/3 (67%) — pet probe drops below RRF top-10 when FTS finds no match
-  fact_evolution:   1/1 (100%), 1 violation — "Stripe" persists; the transition event inserts as ADD, not a supersede
-  multi_hop:        0/1 (0%) — graph channel not yet implemented
-  noise_resistance: 0 violations
-  opinion_arc:      1/1 (100%), 0 violations
-  OVERALL:          4/6 (67%), 1 violation
+
+    basic_facts:      2/3 (67%) — pet probe drops below RRF top-10 when FTS finds no match
+    fact_evolution:   1/1 (100%), 1 violation — "Stripe" persists; the transition event inserts as ADD, not a supersede
+    multi_hop:        0/1 (0%) — graph channel not yet implemented
+    noise_resistance: 0 violations
+    opinion_arc:      1/1 (100%), 0 violations
+    OVERALL:          4/6 (67%), 1 violation
 
 ---
 
@@ -137,12 +167,13 @@ Fixture results:
 - Graceful degradation when OPENAI_API_KEY is absent: turn saved, /recall returns empty
 
 Fixture baseline metrics (after cleanup fix — each run starts from empty state):
-  - basic_facts:       3/3 hits (100%)
-  - fact_evolution:    1/1 hits (100%) | violation: "Stripe" still in context (no consolidation)
-  - multi_hop:         0/1 hits   (0%) | Amsterdam pushed out of top-10 by noise — fails as expected
-  - noise_resistance:  0 violations    (negative test — checks not_expected_facts only)
-  - opinion_arc:       1/1 hits (100%) | violation: "game changer" still in context (no opinion_view)
-  - OVERALL:           5/6 (83%), 2 not-expected violations
+
+    basic_facts:      3/3 (100%)
+    fact_evolution:   1/1 (100%), 1 violation — "Stripe" still in context (no consolidation)
+    multi_hop:        0/1  (0%)  — Amsterdam pushed out of top-10 by noise, fails as expected
+    noise_resistance: 0 violations
+    opinion_arc:      1/1 (100%), 1 violation — "game changer" still in context (no opinion_view)
+    OVERALL:          5/6 (83%), 2 violations
 
 ---
 

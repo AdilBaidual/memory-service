@@ -15,8 +15,8 @@ import (
 // candidatesPerChannel is how many results each channel fetches before fusion.
 const candidatesPerChannel = 30
 
-// HybridRetriever runs semantic (cosine) and keyword (FTS) channels in parallel
-// and fuses results with RRF. Stage 4: two channels.
+// HybridRetriever runs semantic (cosine), keyword (FTS), and graph channels
+// in parallel and fuses results with RRF. Stage 5: three channels.
 type HybridRetriever struct {
 	pool   storage.Querier
 	client *llm.Client
@@ -27,8 +27,8 @@ func NewHybridRetriever(pool storage.Querier, client *llm.Client) *HybridRetriev
 	return &HybridRetriever{pool: pool, client: client}
 }
 
-// Retrieve runs semantic and keyword channels concurrently, fuses via RRF, and
-// returns up to params.Limit memories.
+// Retrieve runs semantic, keyword, and graph channels concurrently, fuses via
+// RRF, and returns up to params.Limit memories.
 func (r *HybridRetriever) Retrieve(
 	ctx context.Context,
 	params RetrieveParams,
@@ -40,6 +40,7 @@ func (r *HybridRetriever) Retrieve(
 	var (
 		semanticResults []storage.ScoredMemory
 		keywordResults  []storage.ScoredMemory
+		graphResults    []storage.ScoredMemory
 	)
 
 	g, gctx := errgroup.WithContext(ctx)
@@ -72,18 +73,30 @@ func (r *HybridRetriever) Retrieve(
 		return nil
 	})
 
+	g.Go(func() error {
+		results, err := graphSearch(
+			gctx, r.pool, params.UserID, params.Query, candidatesPerChannel)
+		if err != nil {
+			slog.Warn("graph channel failed", "err", err)
+			return nil
+		}
+		graphResults = results
+		return nil
+	})
+
 	if err := g.Wait(); err != nil {
 		return nil, err
 	}
 
 	var inputs []RRFInput
 	if len(semanticResults) > 0 {
-		slog.Debug("[DEBUG] semanticResults", "semanticResults", semanticResults)
 		inputs = append(inputs, RRFInput{Memories: semanticResults})
 	}
 	if len(keywordResults) > 0 {
-		slog.Debug("[DEBUG] keywordResults", "keywordResults", keywordResults)
 		inputs = append(inputs, RRFInput{Memories: keywordResults})
+	}
+	if len(graphResults) > 0 {
+		inputs = append(inputs, RRFInput{Memories: graphResults})
 	}
 
 	if len(inputs) == 0 {

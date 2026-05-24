@@ -22,17 +22,18 @@ func New(client *llm.Client) *Extractor {
 	return &Extractor{client: client}
 }
 
-// Extract runs LLM extraction on a turn and returns memory candidates.
-// Returns nil, nil when the LLM client is not configured — callers should
+// Extract runs LLM extraction on a turn and returns memory candidates
+// and relationship triplets.
+// Returns nil, nil, nil when the LLM client is not configured — callers should
 // treat this as graceful degradation (turn saved, no memories extracted).
 func (e *Extractor) Extract(
 	ctx context.Context,
 	pool storage.Querier,
 	userID string,
 	messages []storage.TurnMessage,
-) ([]Candidate, error) {
+) ([]Candidate, []llm.Relationship, error) {
 	if e.client == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	existingKeys, err := storage.GetCanonicalKeys(ctx, pool, userID)
@@ -55,7 +56,7 @@ func (e *Extractor) Extract(
 
 	result, err := e.client.Extract(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("llm extract: %w", err)
+		return nil, nil, fmt.Errorf("llm extract: %w", err)
 	}
 
 	var candidates []Candidate
@@ -83,7 +84,7 @@ func (e *Extractor) Extract(
 			Confidence: computeConfidence(evidence),
 		})
 	}
-	return candidates, nil
+	return candidates, result.Relationships, nil
 }
 
 // Embed embeds a single text using the underlying LLM client.

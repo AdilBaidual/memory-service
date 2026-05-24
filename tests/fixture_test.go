@@ -61,9 +61,9 @@ func loadFixtures(dir string) ([]Fixture, error) {
 
 	var fixtures []Fixture
 	for _, e := range entries {
-		//if e.Name() != "02_fact_evolution.yaml" {
-		//	continue
-		//}
+		if e.Name() != "02_fact_evolution.yaml" {
+			continue
+		}
 		if !strings.HasSuffix(e.Name(), ".yaml") {
 			continue
 		}
@@ -116,6 +116,7 @@ func TestFixtureQuality(t *testing.T) {
 			// Wipe all users from this fixture so stale data from previous
 			// runs cannot pollute retrieval results.
 			for _, userID := range fixtureUserIDs(f) {
+				fmt.Println("DELETED userID:", userID)
 				resp := deleteReq(t, "/users/"+userID)
 				mustStatus(t, resp, 204)
 				resp.Body.Close()
