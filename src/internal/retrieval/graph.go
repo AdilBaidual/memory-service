@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"memory-service/internal/storage"
+	"memory-service/internal/adapters/store"
 )
 
 // graphSearch finds memories reachable from query entities via
@@ -21,11 +21,11 @@ import (
 // Hop 2 score: 0.5 (one step removed)
 func graphSearch(
 	ctx context.Context,
-	q storage.Querier,
+	q store.Querier,
 	userID string,
 	query string,
 	limit int,
-) ([]storage.ScoredMemory, error) {
+) ([]store.ScoredMemory, error) {
 
 	entities := extractQueryEntities(query)
 	if len(entities) == 0 {
@@ -108,9 +108,9 @@ func graphSearch(
 	}
 	defer rows.Close()
 
-	var results []storage.ScoredMemory
+	var results []store.ScoredMemory
 	for rows.Next() {
-		var m storage.ScoredMemory
+		var m store.ScoredMemory
 		if err := scanScoredMemory(rows, &m); err != nil {
 			return nil, fmt.Errorf("scan graph row: %w", err)
 		}

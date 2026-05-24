@@ -1,5 +1,4 @@
-// Package storage handles database connectivity, schema migrations, and data access.
-package storage
+package store
 
 import (
 	"context"
@@ -283,6 +282,7 @@ func buildListFilters(f ListMemoriesFilters, argBase int) (clauses []string, arg
 	if f.Key != nil {
 		clauses = append(clauses, fmt.Sprintf("key = $%d", i))
 		args = append(args, *f.Key)
+		i++ //nolint:ineffassign // keeps argBase incrementing correctly if more filters are added
 	}
 	return
 }

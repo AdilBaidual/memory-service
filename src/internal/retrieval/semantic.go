@@ -4,18 +4,18 @@ import (
 	"context"
 	"fmt"
 
-	"memory-service/internal/llm"
-	"memory-service/internal/storage"
+	"memory-service/internal/adapters/llm"
+	"memory-service/internal/adapters/store"
 )
 
 // SemanticRetriever retrieves memories using cosine similarity on OpenAI embeddings.
 type SemanticRetriever struct {
-	pool   storage.Querier
+	pool   store.Querier
 	client *llm.Client
 }
 
 // NewSemanticRetriever creates a SemanticRetriever.
-func NewSemanticRetriever(pool storage.Querier, client *llm.Client) *SemanticRetriever {
+func NewSemanticRetriever(pool store.Querier, client *llm.Client) *SemanticRetriever {
 	return &SemanticRetriever{pool: pool, client: client}
 }
 
@@ -34,7 +34,7 @@ func (r *SemanticRetriever) Retrieve(ctx context.Context, params RetrieveParams)
 		return nil, fmt.Errorf("embed query: %w", err)
 	}
 
-	scored, err := storage.GetTopKByCosine(ctx, r.pool, params.UserID, queryEmbedding, params.Limit)
+	scored, err := store.GetTopKByCosine(ctx, r.pool, params.UserID, queryEmbedding, params.Limit)
 	if err != nil {
 		return nil, fmt.Errorf("cosine search: %w", err)
 	}

@@ -6,14 +6,14 @@ import (
 
 	"github.com/google/uuid"
 
-	"memory-service/internal/storage"
+	"memory-service/internal/adapters/store"
 )
 
 const rrfK = 60
 
 // RRFInput is one ranked list of scored memories from a retrieval channel.
 type RRFInput struct {
-	Memories []storage.ScoredMemory
+	Memories []store.ScoredMemory
 }
 
 // FuseRRF combines multiple ranked lists using Reciprocal Rank Fusion.
@@ -25,9 +25,9 @@ type RRFInput struct {
 // Memories not present in a channel are simply not added.
 // Returns a deduplicated list sorted by RRF score descending.
 // Limit caps the returned slice.
-func FuseRRF(inputs []RRFInput, limit int) []storage.ScoredMemory {
+func FuseRRF(inputs []RRFInput, limit int) []store.ScoredMemory {
 	scores := make(map[uuid.UUID]float32)
-	byID := make(map[uuid.UUID]storage.ScoredMemory)
+	byID := make(map[uuid.UUID]store.ScoredMemory)
 
 	for _, input := range inputs {
 		for rank, m := range input.Memories {
@@ -37,7 +37,7 @@ func FuseRRF(inputs []RRFInput, limit int) []storage.ScoredMemory {
 		}
 	}
 
-	fused := make([]storage.ScoredMemory, 0, len(scores))
+	fused := make([]store.ScoredMemory, 0, len(scores))
 	for id, score := range scores {
 		m := byID[id]
 		m.Score = score

@@ -3,12 +3,12 @@ package retrieval
 import (
 	"context"
 
-	"memory-service/internal/storage"
+	"memory-service/internal/adapters/store"
 )
 
 // RetrievedMemory is a scored memory returned by the retrieval pipeline.
 type RetrievedMemory struct {
-	storage.ScoredMemory
+	store.ScoredMemory
 }
 
 // RetrieveParams holds parameters for a retrieval request.

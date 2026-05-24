@@ -1,5 +1,5 @@
-// Package storage handles database connectivity and schema migrations.
-package storage
+// Package store handles database connectivity, schema migrations, and data access.
+package store
 
 import (
 	"context"

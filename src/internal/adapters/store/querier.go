@@ -1,5 +1,4 @@
-// Package storage handles database connectivity, schema migrations, and data access.
-package storage
+package store
 
 import (
 	"context"
@@ -8,7 +7,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// Querier is the subset of *pgxpool.Pool and pgx.Tx used by storage
+// Querier is the subset of *pgxpool.Pool and pgx.Tx used by store
 // functions. Lets a function be called either standalone (pool) or
 // inside a caller-managed transaction (tx).
 type Querier interface {

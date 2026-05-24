@@ -10,8 +10,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"memory-service/internal/llm"
-	"memory-service/internal/storage"
+	"memory-service/internal/adapters/llm"
+	"memory-service/internal/adapters/store"
 )
 
 // ProcessRelationships persists entity triplets from a turn.
@@ -46,27 +46,27 @@ func ProcessRelationships(
 			continue
 		}
 
-		if err := storage.UpsertEntity(ctx, tx, subj, userID,
+		if err := store.UpsertEntity(ctx, tx, subj, userID,
 			inferEntityType(subj)); err != nil {
 			return fmt.Errorf("upsert subject %q: %w", subj, err)
 		}
 
-		if err := storage.UpsertEntity(ctx, tx, obj, userID,
+		if err := store.UpsertEntity(ctx, tx, obj, userID,
 			inferEntityType(obj)); err != nil {
 			return fmt.Errorf("upsert object %q: %w", obj, err)
 		}
 
-		if err := storage.InsertRelationship(ctx, tx,
+		if err := store.InsertRelationship(ctx, tx,
 			userID, subj, pred, obj, srcID); err != nil {
 			return fmt.Errorf("insert relationship (%s,%s,%s): %w",
 				subj, pred, obj, err)
 		}
 
-		if err := storage.InsertEntityMention(ctx, tx,
+		if err := store.InsertEntityMention(ctx, tx,
 			srcID, subj, userID, "subject"); err != nil {
 			return fmt.Errorf("mention subject %q: %w", subj, err)
 		}
-		if err := storage.InsertEntityMention(ctx, tx,
+		if err := store.InsertEntityMention(ctx, tx,
 			srcID, obj, userID, "object"); err != nil {
 			return fmt.Errorf("mention object %q: %w", obj, err)
 		}

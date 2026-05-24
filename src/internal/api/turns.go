@@ -14,9 +14,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"memory-service/internal/adapters/store"
 	"memory-service/internal/consolidation"
 	"memory-service/internal/extraction"
-	"memory-service/internal/storage"
 )
 
 // NewTurnsHandler handles POST /turns.
@@ -56,7 +56,7 @@ func NewTurnsHandler(pool *pgxpool.Pool, ext *extraction.Extractor) http.Handler
 		}
 		defer tx.Rollback(ctx) //nolint:errcheck
 
-		turnID, err := storage.InsertTurn(ctx, tx, storage.InsertTurnParams{
+		turnID, err := store.InsertTurn(ctx, tx, store.InsertTurnParams{
 			SessionID: req.SessionID,
 			UserID:    req.UserID,
 			Messages:  messagesJSON,
@@ -97,9 +97,9 @@ func NewTurnsHandler(pool *pgxpool.Pool, ext *extraction.Extractor) http.Handler
 			return
 		}
 
-		turnMsgs := make([]storage.TurnMessage, len(req.Messages))
+		turnMsgs := make([]store.TurnMessage, len(req.Messages))
 		for i, m := range req.Messages {
-			turnMsgs[i] = storage.TurnMessage{Role: m.Role, Content: m.Content}
+			turnMsgs[i] = store.TurnMessage{Role: m.Role, Content: m.Content}
 		}
 
 		llmCtx, llmCancel := context.WithTimeout(ctx, 30*time.Second)
@@ -171,7 +171,7 @@ func NewTurnsHandler(pool *pgxpool.Pool, ext *extraction.Extractor) http.Handler
 
 			case "opinion", "event":
 				entJSON, _ := json.Marshal(c.Entities)
-				id, insErr := storage.InsertMemory(ctx, tx2, storage.InsertMemoryParams{
+				id, insErr := store.InsertMemory(ctx, tx2, store.InsertMemoryParams{
 					UserID:        *req.UserID,
 					Type:          c.Type,
 					Key:           c.Key,

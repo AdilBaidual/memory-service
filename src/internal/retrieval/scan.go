@@ -6,7 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"memory-service/internal/storage"
+	"memory-service/internal/adapters/store"
 )
 
 // scanScoredMemory scans a single row from a ScoredMemory query result.
@@ -15,7 +15,7 @@ import (
 //	id, user_id, type, key, value, evidence, confidence,
 //	entities, source_session, source_turn, supersedes, active,
 //	valid_from, valid_to, created_at, updated_at, metadata, score
-func scanScoredMemory(rows pgx.Rows, m *storage.ScoredMemory) error {
+func scanScoredMemory(rows pgx.Rows, m *store.ScoredMemory) error {
 	if err := rows.Scan(
 		&m.ID, &m.UserID, &m.Type, &m.Key, &m.Value, &m.Evidence,
 		&m.Confidence, &m.Entities, &m.SourceSession, &m.SourceTurn,

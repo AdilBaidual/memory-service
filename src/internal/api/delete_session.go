@@ -11,7 +11,7 @@ import (
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"memory-service/internal/storage"
+	"memory-service/internal/adapters/store"
 )
 
 // NewDeleteSessionHandler handles DELETE /sessions/{session_id}.
@@ -37,7 +37,7 @@ func NewDeleteSessionHandler(pool *pgxpool.Pool) http.HandlerFunc {
 		}
 		defer tx.Rollback(ctx) //nolint:errcheck
 
-		memoriesDeleted, turnsDeleted, err := storage.DeleteSessionData(ctx, tx, req.SessionID)
+		memoriesDeleted, turnsDeleted, err := store.DeleteSessionData(ctx, tx, req.SessionID)
 		if err != nil {
 			slog.Error("delete session data", "error", err, "request_id", reqID, "session_id", req.SessionID)
 			writeError(w, fmt.Errorf("delete session: %w", err))

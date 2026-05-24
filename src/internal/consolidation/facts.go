@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"memory-service/internal/storage"
+	"memory-service/internal/adapters/store"
 )
 
 // Result describes what consolidation did for a single candidate.
@@ -64,7 +64,7 @@ func ConsolidateFact(
 		return id, ResultADD, err
 	}
 
-	existing, err := storage.FindActiveByKey(ctx, tx, userID, memType, *key)
+	existing, err := store.FindActiveByKey(ctx, tx, userID, memType, *key)
 	if err != nil {
 		return uuid.Nil, ResultADD, fmt.Errorf("find active by key: %w", err)
 	}
@@ -77,13 +77,13 @@ func ConsolidateFact(
 	}
 
 	if normalizeValue(existing.Value) == normalizeValue(value) {
-		if err := storage.TouchMemory(ctx, tx, existing.ID); err != nil {
+		if err := store.TouchMemory(ctx, tx, existing.ID); err != nil {
 			return existing.ID, ResultNOOP, fmt.Errorf("touch memory: %w", err)
 		}
 		return existing.ID, ResultNOOP, nil
 	}
 
-	if err := storage.MarkSuperseded(ctx, tx, existing.ID); err != nil {
+	if err := store.MarkSuperseded(ctx, tx, existing.ID); err != nil {
 		return uuid.Nil, ResultUPDATE, fmt.Errorf("mark superseded: %w", err)
 	}
 	id, err := insertNew(ctx, tx, userID, memType, key, value,
@@ -115,7 +115,7 @@ func insertNew(
 		entJSON = []byte("[]")
 	}
 
-	id, err := storage.InsertMemory(ctx, tx, storage.InsertMemoryParams{
+	id, err := store.InsertMemory(ctx, tx, store.InsertMemoryParams{
 		UserID:        userID,
 		Type:          memType,
 		Key:           key,

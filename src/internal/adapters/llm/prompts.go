@@ -1,5 +1,3 @@
-// Package llm provides an OpenAI client wrapper for extraction, embeddings,
-// and representation updates.
 package llm
 
 import "strings"

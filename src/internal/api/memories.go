@@ -13,7 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"memory-service/internal/storage"
+	"memory-service/internal/adapters/store"
 )
 
 // NewListUserMemoriesHandler handles GET /users/{user_id}/memories.
@@ -28,7 +28,7 @@ func NewListUserMemoriesHandler(pool *pgxpool.Pool) http.HandlerFunc {
 			return
 		}
 
-		mems, err := storage.ListMemoriesByUser(ctx, pool, req.UserID, req.Filters)
+		mems, err := store.ListMemoriesByUser(ctx, pool, req.UserID, req.Filters)
 		if err != nil {
 			slog.Error("list memories", "error", err, "user_id", req.UserID)
 			writeError(w, fmt.Errorf("list memories: %w", err))
@@ -42,7 +42,7 @@ func NewListUserMemoriesHandler(pool *pgxpool.Pool) http.HandlerFunc {
 // MemoriesRequest holds the parsed inputs for GET /users/{user_id}/memories.
 type MemoriesRequest struct {
 	UserID  string
-	Filters storage.ListMemoriesFilters
+	Filters store.ListMemoriesFilters
 }
 
 func parseMemoriesRequest(r *http.Request) (*MemoriesRequest, error) {
@@ -52,7 +52,7 @@ func parseMemoriesRequest(r *http.Request) (*MemoriesRequest, error) {
 	}
 
 	q := r.URL.Query()
-	filters := storage.ListMemoriesFilters{}
+	filters := store.ListMemoriesFilters{}
 
 	if v := q.Get("type"); v != "" {
 		filters.Type = &v
@@ -78,7 +78,7 @@ func parseMemoriesRequest(r *http.Request) (*MemoriesRequest, error) {
 	return &MemoriesRequest{UserID: userID, Filters: filters}, nil
 }
 
-func buildMemoriesResponse(mems []storage.Memory) MemoriesListResponse {
+func buildMemoriesResponse(mems []store.Memory) MemoriesListResponse {
 	views := make([]MemoryView, len(mems))
 	for i, m := range mems {
 		views[i] = memoryToView(m)
@@ -86,7 +86,7 @@ func buildMemoriesResponse(mems []storage.Memory) MemoriesListResponse {
 	return MemoriesListResponse{Memories: views}
 }
 
-func memoryToView(m storage.Memory) MemoryView {
+func memoryToView(m store.Memory) MemoryView {
 	entities := m.Entities
 	if entities == nil {
 		entities = json.RawMessage("[]")

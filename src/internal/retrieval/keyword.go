@@ -5,7 +5,7 @@ import (
 	"context"
 	"fmt"
 
-	"memory-service/internal/storage"
+	"memory-service/internal/adapters/store"
 )
 
 // keywordSearch runs a Postgres full-text search against the value_tsv generated
@@ -16,11 +16,11 @@ import (
 // slice (not error) when the query produces no FTS tokens.
 func keywordSearch(
 	ctx context.Context,
-	q storage.Querier,
+	q store.Querier,
 	userID string,
 	query string,
 	limit int,
-) ([]storage.ScoredMemory, error) {
+) ([]store.ScoredMemory, error) {
 	const sql = `
 		WITH qt AS (
 			SELECT string_agg(lexeme, ' | ') AS expr
@@ -45,9 +45,9 @@ func keywordSearch(
 	}
 	defer rows.Close()
 
-	var results []storage.ScoredMemory
+	var results []store.ScoredMemory
 	for rows.Next() {
-		var m storage.ScoredMemory
+		var m store.ScoredMemory
 		if err := scanScoredMemory(rows, &m); err != nil {
 			return nil, fmt.Errorf("scan keyword row: %w", err)
 		}

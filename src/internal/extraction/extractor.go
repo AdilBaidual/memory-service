@@ -8,8 +8,8 @@ import (
 	"log/slog"
 	"strings"
 
-	"memory-service/internal/llm"
-	"memory-service/internal/storage"
+	"memory-service/internal/adapters/llm"
+	"memory-service/internal/adapters/store"
 )
 
 // Extractor orchestrates LLM-based memory extraction.
@@ -28,21 +28,21 @@ func New(client *llm.Client) *Extractor {
 // treat this as graceful degradation (turn saved, no memories extracted).
 func (e *Extractor) Extract(
 	ctx context.Context,
-	pool storage.Querier,
+	pool store.Querier,
 	userID string,
-	messages []storage.TurnMessage,
+	messages []store.TurnMessage,
 ) ([]Candidate, []llm.Relationship, error) {
 	if e.client == nil {
 		return nil, nil, nil
 	}
 
-	existingKVs, err := storage.GetCanonicalKeyValues(ctx, pool, userID)
+	existingKVs, err := store.GetCanonicalKeyValues(ctx, pool, userID)
 	if err != nil {
 		slog.Warn("get canonical key values failed, proceeding without hints", "error", err, "user_id", userID)
 		existingKVs = nil
 	}
 
-	existingTopics, err := storage.GetOpinionTopics(ctx, pool, userID)
+	existingTopics, err := store.GetOpinionTopics(ctx, pool, userID)
 	if err != nil {
 		slog.Warn("get opinion topics failed, proceeding without hints", "error", err, "user_id", userID)
 		existingTopics = nil
@@ -103,7 +103,7 @@ func (e *Extractor) Embed(ctx context.Context, text string) ([]float32, error) {
 
 // formatConversation serializes messages as "role: content" lines.
 // Tool messages are prefixed with [tool] to signal context-only status.
-func formatConversation(messages []storage.TurnMessage) string {
+func formatConversation(messages []store.TurnMessage) string {
 	var sb strings.Builder
 	for _, m := range messages {
 		switch m.Role {

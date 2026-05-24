@@ -11,12 +11,12 @@ import (
 	"syscall"
 	"time"
 
+	"memory-service/internal/adapters/llm"
+	"memory-service/internal/adapters/store"
 	"memory-service/internal/api"
 	"memory-service/internal/config"
 	"memory-service/internal/extraction"
-	"memory-service/internal/llm"
 	"memory-service/internal/retrieval"
-	"memory-service/internal/storage"
 )
 
 func main() {
@@ -47,14 +47,14 @@ func main() {
 
 	ctx := context.Background()
 
-	bootPool, err := storage.NewBootstrapPool(ctx, cfg)
+	bootPool, err := store.NewBootstrapPool(ctx, cfg)
 	if err != nil {
 		slog.Error("failed to connect to database", "error", err)
 		os.Exit(1)
 	}
 	slog.Info("db pool connected")
 
-	count, err := storage.ApplyMigrations(ctx, bootPool)
+	count, err := store.ApplyMigrations(ctx, bootPool)
 	if err != nil {
 		bootPool.Close()
 		slog.Error("failed to apply migrations", "error", err)
@@ -63,7 +63,7 @@ func main() {
 	slog.Info("migrations applied", "count", count)
 	bootPool.Close()
 
-	pool, err := storage.NewPool(ctx, cfg)
+	pool, err := store.NewPool(ctx, cfg)
 	if err != nil {
 		slog.Error("failed to create pool with pgvector", "error", err)
 		os.Exit(1)

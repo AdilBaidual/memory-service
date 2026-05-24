@@ -11,7 +11,7 @@ import (
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"memory-service/internal/storage"
+	"memory-service/internal/adapters/store"
 )
 
 // NewDeleteUserHandler handles DELETE /users/{user_id}.
@@ -36,7 +36,7 @@ func NewDeleteUserHandler(pool *pgxpool.Pool) http.HandlerFunc {
 		}
 		defer tx.Rollback(ctx) //nolint:errcheck
 
-		if err := storage.DeleteAllUserData(ctx, tx, req.UserID); err != nil {
+		if err := store.DeleteAllUserData(ctx, tx, req.UserID); err != nil {
 			slog.Error("delete user data", "error", err, "request_id", reqID, "user_id", req.UserID)
 			writeError(w, fmt.Errorf("delete user: %w", err))
 			return

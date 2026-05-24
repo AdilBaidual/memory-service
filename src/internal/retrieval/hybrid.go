@@ -7,8 +7,8 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"memory-service/internal/llm"
-	"memory-service/internal/storage"
+	"memory-service/internal/adapters/llm"
+	"memory-service/internal/adapters/store"
 )
 
 // candidatesPerChannel is how many results each channel fetches before fusion.
@@ -17,12 +17,12 @@ const candidatesPerChannel = 30
 // HybridRetriever runs semantic (cosine), keyword (FTS), and graph channels
 // in parallel and fuses results with RRF.
 type HybridRetriever struct {
-	pool   storage.Querier
+	pool   store.Querier
 	client *llm.Client
 }
 
 // NewHybridRetriever creates a HybridRetriever.
-func NewHybridRetriever(pool storage.Querier, client *llm.Client) *HybridRetriever {
+func NewHybridRetriever(pool store.Querier, client *llm.Client) *HybridRetriever {
 	return &HybridRetriever{pool: pool, client: client}
 }
 
@@ -37,9 +37,9 @@ func (r *HybridRetriever) Retrieve(
 	}
 
 	var (
-		semanticResults []storage.ScoredMemory
-		keywordResults  []storage.ScoredMemory
-		graphResults    []storage.ScoredMemory
+		semanticResults []store.ScoredMemory
+		keywordResults  []store.ScoredMemory
+		graphResults    []store.ScoredMemory
 	)
 
 	g, gctx := errgroup.WithContext(ctx)
@@ -51,7 +51,7 @@ func (r *HybridRetriever) Retrieve(
 				slog.Warn("semantic channel failed", "err", err)
 				return nil
 			}
-			results, err := storage.GetTopKByCosine(
+			results, err := store.GetTopKByCosine(
 				gctx, r.pool, params.UserID, emb, candidatesPerChannel)
 			if err != nil {
 				return fmt.Errorf("semantic search: %w", err)
