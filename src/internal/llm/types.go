@@ -2,12 +2,21 @@
 // and representation updates.
 package llm
 
+// KeyValue pairs a canonical key with its current active value.
+type KeyValue struct {
+	Key   string
+	Value string
+}
+
 // ExtractionRequest is the input to the extraction LLM call.
 type ExtractionRequest struct {
 	// Conversation is the serialized conversation text, formatted as role: content lines.
 	Conversation string
-	// ExistingKeys are canonical memory keys for this user, passed as LLM hints.
-	ExistingKeys []string
+	// ExistingKeyValues are canonical memory keys with their current values for this user.
+	// Showing both key and current value prevents the LLM from reusing a key for a
+	// semantically different piece of information (e.g. reusing has_pet for a sourdough
+	// starter when the current value is already "User has a cat named Luna").
+	ExistingKeyValues []KeyValue
 	// ExistingOpinionTopics are opinion topic keys for this user, passed as LLM hints.
 	ExistingOpinionTopics []string
 }

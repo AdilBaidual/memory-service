@@ -36,10 +36,10 @@ func (e *Extractor) Extract(
 		return nil, nil, nil
 	}
 
-	existingKeys, err := storage.GetCanonicalKeys(ctx, pool, userID)
+	existingKVs, err := storage.GetCanonicalKeyValues(ctx, pool, userID)
 	if err != nil {
-		slog.Warn("get canonical keys failed, proceeding without hints", "error", err, "user_id", userID)
-		existingKeys = nil
+		slog.Warn("get canonical key values failed, proceeding without hints", "error", err, "user_id", userID)
+		existingKVs = nil
 	}
 
 	existingTopics, err := storage.GetOpinionTopics(ctx, pool, userID)
@@ -48,9 +48,14 @@ func (e *Extractor) Extract(
 		existingTopics = nil
 	}
 
+	kvHints := make([]llm.KeyValue, len(existingKVs))
+	for i, kv := range existingKVs {
+		kvHints[i] = llm.KeyValue{Key: kv.Key, Value: kv.Value}
+	}
+
 	req := llm.ExtractionRequest{
 		Conversation:          formatConversation(messages),
-		ExistingKeys:          existingKeys,
+		ExistingKeyValues:     kvHints,
 		ExistingOpinionTopics: existingTopics,
 	}
 

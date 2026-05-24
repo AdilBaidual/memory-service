@@ -43,19 +43,20 @@ func graphSearch(
 			  AND em.entity_name = ANY($2::text[])
 		),
 		hop1_entities AS (
+			-- Relationships are append-only navigation metadata.
+			-- Do NOT filter by m.active here: if a source memory is superseded,
+			-- the edge it produced still provides a valid traversal path.
+			-- (hop1_memories and hop2_memories independently enforce active=true
+			-- on the memories they actually return.)
 			SELECT DISTINCT er.object_entity AS name
 			FROM entity_relationships er
-			JOIN memories m ON m.id = er.source_memory_id
 			WHERE er.user_id        = $1
 			  AND er.subject_entity = ANY($2::text[])
-			  AND m.active          = true
 			UNION
 			SELECT DISTINCT er.subject_entity
 			FROM entity_relationships er
-			JOIN memories m ON m.id = er.source_memory_id
 			WHERE er.user_id       = $1
 			  AND er.object_entity = ANY($2::text[])
-			  AND m.active         = true
 		),
 		hop2_memories AS (
 			SELECT DISTINCT m.id, 0.5::float4 AS hop_score
@@ -102,6 +103,7 @@ func graphSearch(
 	return results, rows.Err()
 }
 
+// TODO: переделать
 // extractQueryEntities extracts candidate entity names from a query.
 // Takes capitalized words that are not common stop words.
 // v1: simple heuristic. v2: proper NER.
@@ -129,9 +131,12 @@ func extractQueryEntities(query string) []string {
 			continue
 		}
 		if clean[0] >= 'A' && clean[0] <= 'Z' && !stopWords[clean] {
-			if !seen[clean] {
-				seen[clean] = true
-				entities = append(entities, clean)
+			// Normalize to lowercase: entity_relationships and entity_mentions
+			// are stored in lowercase to ensure consistent matching.
+			lower := strings.ToLower(clean)
+			if !seen[lower] {
+				seen[lower] = true
+				entities = append(entities, lower)
 			}
 		}
 	}

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
@@ -125,6 +126,10 @@ func NewTurnsHandler(pool *pgxpool.Pool, ext *extraction.Extractor) http.Handler
 		}
 		defer tx2.Rollback(ctx) //nolint:errcheck
 
+		// entityMemoryMap maps lowercase entity name → memory ID so that each
+		// relationship triplet can be anchored to the most specific source memory.
+		entityMemoryMap := make(map[string]uuid.UUID)
+
 		inserted := 0
 		var lastMemoryID uuid.UUID
 		for _, c := range candidates {
@@ -140,6 +145,7 @@ func NewTurnsHandler(pool *pgxpool.Pool, ext *extraction.Extractor) http.Handler
 				embedding = nil
 			}
 
+			var memID uuid.UUID
 			switch c.Type {
 			case "fact", "preference":
 				id, result, consErr := consolidation.ConsolidateFact(ctx, tx2,
@@ -151,6 +157,7 @@ func NewTurnsHandler(pool *pgxpool.Pool, ext *extraction.Extractor) http.Handler
 						"type", c.Type, "key", c.Key, "err", consErr, "request_id", reqID)
 					continue
 				}
+				memID = id
 				if result != consolidation.ResultNOOP {
 					lastMemoryID = id
 				}
@@ -178,9 +185,20 @@ func NewTurnsHandler(pool *pgxpool.Pool, ext *extraction.Extractor) http.Handler
 						"type", c.Type, "key", c.Key, "err", insErr, "request_id", reqID)
 					continue
 				}
+				memID = id
 				lastMemoryID = id
 				inserted++
 				slog.Debug("memory inserted", "type", c.Type, "key", c.Key, "user_id", *req.UserID)
+			}
+
+			// Register entities so relationships can be anchored to this memory.
+			for _, ent := range c.Entities {
+				lower := strings.ToLower(strings.TrimSpace(ent))
+				if lower != "" && lower != "user" {
+					if _, exists := entityMemoryMap[lower]; !exists {
+						entityMemoryMap[lower] = memID
+					}
+				}
 			}
 		}
 
@@ -190,6 +208,7 @@ func NewTurnsHandler(pool *pgxpool.Pool, ext *extraction.Extractor) http.Handler
 				ctx, tx2,
 				*req.UserID,
 				relationships,
+				entityMemoryMap,
 				lastMemoryID,
 			); err != nil {
 				// Non-fatal: relationships are navigation-only data.

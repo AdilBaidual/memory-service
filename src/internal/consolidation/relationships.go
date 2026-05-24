@@ -15,33 +15,34 @@ import (
 )
 
 // ProcessRelationships persists entity triplets from a turn.
-// For each relationship:
-//  1. Upsert subject and object as entities
-//  2. Insert the relationship (append-only)
-//  3. Link entities to source memory via entity_mentions
+// entityMemoryMap maps lowercase entity names to their source memory IDs,
+// allowing each relationship to be anchored to the most specific memory.
+// The fallback ID is used when neither subject nor object appears in the map.
 //
 // Non-fatal: errors are logged but do not abort the transaction.
 // Relationships are derived navigation data; missing ones don't
 // break correctness — retrieval degrades gracefully to semantic+FTS.
-//
-// No-ops silently when sourceMemoryID is uuid.Nil (no memory to link to).
 func ProcessRelationships(
 	ctx context.Context,
 	tx pgx.Tx,
 	userID string,
 	relationships []llm.Relationship,
-	sourceMemoryID uuid.UUID,
+	entityMemoryMap map[string]uuid.UUID,
+	fallbackMemoryID uuid.UUID,
 ) error {
-	if sourceMemoryID == uuid.Nil {
-		return nil
-	}
-
 	for _, rel := range relationships {
-		subj := strings.TrimSpace(rel.Subject)
-		pred := strings.TrimSpace(rel.Predicate)
-		obj := strings.TrimSpace(rel.Object)
+		// Normalize to lowercase so graph queries match regardless of how
+		// the LLM capitalizes entity names (e.g. "user" vs "User").
+		subj := strings.ToLower(strings.TrimSpace(rel.Subject))
+		pred := strings.ToLower(strings.TrimSpace(rel.Predicate))
+		obj := strings.ToLower(strings.TrimSpace(rel.Object))
 
 		if subj == "" || pred == "" || obj == "" {
+			continue
+		}
+
+		srcID := resolveSourceMemory(obj, subj, entityMemoryMap, fallbackMemoryID)
+		if srcID == uuid.Nil {
 			continue
 		}
 
@@ -56,21 +57,37 @@ func ProcessRelationships(
 		}
 
 		if err := storage.InsertRelationship(ctx, tx,
-			userID, subj, pred, obj, sourceMemoryID); err != nil {
+			userID, subj, pred, obj, srcID); err != nil {
 			return fmt.Errorf("insert relationship (%s,%s,%s): %w",
 				subj, pred, obj, err)
 		}
 
 		if err := storage.InsertEntityMention(ctx, tx,
-			sourceMemoryID, subj, userID, "subject"); err != nil {
+			srcID, subj, userID, "subject"); err != nil {
 			return fmt.Errorf("mention subject %q: %w", subj, err)
 		}
 		if err := storage.InsertEntityMention(ctx, tx,
-			sourceMemoryID, obj, userID, "object"); err != nil {
+			srcID, obj, userID, "object"); err != nil {
 			return fmt.Errorf("mention object %q: %w", obj, err)
 		}
 	}
 	return nil
+}
+
+// resolveSourceMemory picks the memory that best anchors a relationship.
+// Prefers the object entity (more specific), then subject, then fallback.
+// "user" is skipped — it's too broad to be a useful anchor.
+func resolveSourceMemory(obj, subj string, m map[string]uuid.UUID, fallback uuid.UUID) uuid.UUID {
+	for _, name := range []string{obj, subj} {
+		lower := strings.ToLower(name)
+		if lower == "user" {
+			continue
+		}
+		if id, ok := m[lower]; ok && id != uuid.Nil {
+			return id
+		}
+	}
+	return fallback
 }
 
 // inferEntityType guesses entity type from name.

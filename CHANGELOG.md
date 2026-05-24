@@ -5,6 +5,34 @@ Entries are in reverse chronological order.
 
 ---
 
+## v1.3.1 — Graph traversal correctness and extraction stability
+
+- Fixes hop1_entities CTE filtering entity_relationships by `m.active = true` on the source memory. When a memory was superseded, its edges disappeared from traversal even though entity relationships are append-only navigation metadata — not versioned facts. Removed the JOIN to memories from hop1_entities; only hop1_memories and hop2_memories, which return actual memory content, retain the `active = true` guard.
+- Fixes relationship triplets being anchored to the last inserted memory (lastMemoryID). In sessions with multiple extracted facts, a triplet like `(user, lives_in, Amsterdam)` could be anchored to a "moved from Rotterdam" event, leaving the Amsterdam memory with no entity_mentions entry and unreachable by hop2. Now each triplet resolves its source memory by looking up the object entity in a per-turn entity→memoryID map, then the subject entity, then falls back to lastMemoryID.
+- Fixes inconsistent entity name casing between storage and query. The LLM sometimes returns "user" and sometimes "User" as a relationship subject; entity_mentions stored names as-is, causing case-sensitive lookups to miss matches. Entity names are now normalised to lowercase at write time in entity_relationships and entity_mentions, and extractQueryEntities returns lowercase to match.
+- Fixes existing-keys hint passing only key names to the LLM. Two failure modes resulted: noise travel sessions were extracted under `current_city` — a key already in use — superseding the user's permanent location; a sourdough starter was stored under `has_pet`, superseding the cat. The hint now includes the current active value alongside each key, giving the model enough context to reject a travel episode as a `current_city` update. The hint also lists semantic-type constraints: has_pet is for animals only, current_city only changes on an explicit permanent move, current_employer only changes when the user actively works somewhere new.
+- Adds TEMPORARY vs PERMANENT STATE and DEPARTURES AND ENDINGS rules to the extraction prompt. Temporary situations (travel, visits, layovers) are events; departures ("left Stripe", "quit X") are events or skipped — never a replacement for the current fact. When a user both leaves one place and joins another in the same message, only the new current state is extracted as a fact.
+- Fixes relationship subject inversion for pet/ownership sentences: LLM was extracting (cat, is_a, Luna) instead of (user, has_pet, Luna). Added explicit two-step extraction pattern with WRONG/RIGHT examples plus OBJECT CONFUSION rule (object of is_a must be the type word, not the subject repeated). Added tautological triplet filter in Go: any (X, P, X) relationship is silently dropped as a model error.
+
+Fixture delta vs v1.3.0:
+
+    basic_facts:      3/3 (100%) — unchanged
+    fact_evolution:   1/1 (100%) — unchanged; 1 not-expected violation (Stripe
+                                   in context — bi-temporal history, expected)
+    multi_hop:        1/1 (100%) — up from 0/1; Luna and Amsterdam now in
+                                   top-2 recall positions, displacing noise
+    noise_resistance: 0 violations — unchanged
+    opinion_arc:      1/1 (100%) — unchanged; 1 not-expected violation
+                                   (game changer — opinion_view not yet
+                                   implemented, expected)
+    OVERALL:          6/6 (100%), 2 not-expected violations
+    JUDGE:            18/20 assertions correct (90%); 2 failures — both are
+                      reasoning-chain assertions ("view has evolved over time",
+                      "Luna's location determinable from home city") that
+                      require opinion_view synthesis, not implemented yet
+
+---
+
 ## v1.3.0 — Entity graph extraction and 2-hop traversal
 
 - LLM extraction prompt extended to return relationship triplets (subject, predicate, object) alongside items
@@ -12,7 +40,7 @@ Entries are in reverse chronological order.
 - Third retrieval channel: 2-hop CTE — hop 1 fetches memories directly linked to query entities via entity_mentions (score 1.0), hop 2 follows entity_relationships edges to neighbour entities (score 0.5); fused into existing semantic + FTS RRF pipeline
 - Query entities extracted by capitalized-word heuristic; predicate synonym groups in internal/predicates/groups.go
 - Relationship writes are non-fatal — a write error logs a warning without rolling back the memory transaction
-- Fixes relationship subject inversion for pet/ownership sentences: LLM was extracting (cat, is_a, Luna) instead of (user, has_pet, Luna). Added explicit two-step extraction pattern with WRONG/RIGHT examples plus OBJECT CONFUSION rule (object of is_a must be the type word, not the subject repeated). Added tautological triplet filter in Go: any (X, P, X) relationship is silently dropped as a model error.
+
 
 Fixture delta vs v1.2.0:
 

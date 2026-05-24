@@ -145,31 +145,33 @@ func GetTopKByCosine(ctx context.Context, q Querier, userID string, queryEmbeddi
 	return memories, nil
 }
 
-// GetCanonicalKeys returns distinct non-null keys for active fact and preference memories.
-func GetCanonicalKeys(ctx context.Context, q Querier, userID string) ([]string, error) {
+// GetCanonicalKeyValues returns key+value pairs for active fact and preference memories.
+// Returning the current value alongside the key lets the extraction LLM decide whether
+// new information is the same type (reuse key) or a different type (new key).
+func GetCanonicalKeyValues(ctx context.Context, q Querier, userID string) ([]struct{ Key, Value string }, error) {
 	rows, err := q.Query(ctx, `
-		SELECT DISTINCT key
+		SELECT DISTINCT ON (key) key, value
 		FROM memories
 		WHERE user_id = $1
 		  AND active = true
 		  AND key IS NOT NULL
 		  AND type IN ('fact', 'preference')
-		ORDER BY key
+		ORDER BY key, updated_at DESC
 	`, userID)
 	if err != nil {
-		return nil, fmt.Errorf("get canonical keys: %w", err)
+		return nil, fmt.Errorf("get canonical key values: %w", err)
 	}
 	defer rows.Close()
 
-	var keys []string
+	var pairs []struct{ Key, Value string }
 	for rows.Next() {
-		var k string
-		if err := rows.Scan(&k); err != nil {
-			return nil, fmt.Errorf("scan canonical key: %w", err)
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			return nil, fmt.Errorf("scan canonical key value: %w", err)
 		}
-		keys = append(keys, k)
+		pairs = append(pairs, struct{ Key, Value string }{k, v})
 	}
-	return keys, rows.Err()
+	return pairs, rows.Err()
 }
 
 // GetOpinionTopics returns distinct keys for opinion memories for a user.

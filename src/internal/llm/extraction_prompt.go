@@ -53,6 +53,34 @@ type must be exactly one of: fact, preference, opinion, event
       "Actually I'm at Notion now, not Stripe" → current_employer=Notion
       Do NOT extract the correction as an event.
 
+  TEMPORARY vs PERMANENT STATE
+    Before extracting a fact, ask: "Is this a stable, ongoing attribute of
+    the user, or a temporary/one-time situation?"
+    Only extract as a fact if it represents a durable state. Temporary
+    situations belong in events.
+      Permanent state → fact:
+        "I live in Amsterdam" → current_city = "User lives in Amsterdam"
+        "I work at Stripe" → current_employer = "User works at Stripe"
+      Temporary situation → event:
+        "Just back from a conference in Berlin" → event (past travel)
+        "Short work trip to Copenhagen last month" → event
+        "Had a layover in Vienna" → event
+        "I'm reading a book" → skip or event; not a persistent preference
+    When an existing fact key appears in EXISTING MEMORY KEYS with its
+    current value, only overwrite it if the user's situation has durably
+    changed. Do not overwrite a permanent fact with a temporary one.
+      current_city = "User lives in Amsterdam" must NOT be replaced by
+      a travel destination unless the user says they have moved there.
+
+  DEPARTURES AND ENDINGS
+    "Left X", "quit X", "left X last week", "no longer at X" describe a
+    past action, NOT a current state. Extract these as events or skip them.
+    NEVER use a fact key to record that someone left/quit something.
+    When the user both leaves one place and joins another in the same
+    message, extract ONLY the new current state as a fact.
+      "Left Stripe and now I'm at Notion" → fact current_employer="User works at Notion"
+        NOT: fact current_employer="User left Stripe"  ← WRONG
+
   preference — a recurring behavioral pattern or lasting like/dislike
     Examples: prefers async communication, vegetarian, allergic to shellfish,
               always uses dark mode, works best in the morning
@@ -221,13 +249,20 @@ Return empty relationships array [] if none found.`
 func buildExtractionPrompt(req ExtractionRequest) string {
 	var sb strings.Builder
 
-	if len(req.ExistingKeys) > 0 {
-		sb.WriteString("EXISTING CANONICAL KEYS FOR THIS USER")
-		sb.WriteString(" (use these keys when extracting the same type of information):\n")
-		for _, k := range req.ExistingKeys {
+	if len(req.ExistingKeyValues) > 0 {
+		sb.WriteString("EXISTING MEMORY KEYS FOR THIS USER\n")
+		sb.WriteString("Reuse a key ONLY when the new fact is the SAME SEMANTIC TYPE.\n")
+		sb.WriteString("Rules:\n")
+		sb.WriteString("  - If the current value is about an ANIMAL/PET, only reuse for another animal.\n")
+		sb.WriteString("  - If the current value is about a LOCATION, only reuse for a NEW permanent location.\n")
+		sb.WriteString("  - If the current value is about an EMPLOYER, only reuse for a NEW employer the user actively works at.\n")
+		sb.WriteString("  - When in doubt, create a NEW key rather than overwriting an existing one.\n\n")
+		for _, kv := range req.ExistingKeyValues {
 			sb.WriteString("  - ")
-			sb.WriteString(k)
-			sb.WriteString("\n")
+			sb.WriteString(kv.Key)
+			sb.WriteString(" (current: \"")
+			sb.WriteString(kv.Value)
+			sb.WriteString("\")\n")
 		}
 		sb.WriteString("\n")
 	}
