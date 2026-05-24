@@ -457,6 +457,152 @@ func TestMemories_Pagination(t *testing.T) {
 	deleteReq(t, "/users/"+uid)
 }
 
+// ─── Anonymous session (session-scoped, no user_id) ──────────────────────────
+
+func TestAnonymousTurn_RecallShape(t *testing.T) {
+	sid := uniqueID("anon-session")
+
+	resp := postJSON(t, "/turns", anonymousTurnBody(sid, "I am a software engineer who loves Go"))
+	mustStatus(t, resp, 201)
+	resp.Body.Close()
+
+	body := fmt.Sprintf(`{"query":"what does the user do?","session_id":%q,"max_tokens":512}`, sid)
+	resp = postJSON(t, "/recall", body)
+	mustStatus(t, resp, 200)
+
+	var out struct {
+		Context   string          `json:"context"`
+		Citations []json.RawMessage `json:"citations"`
+	}
+	decodeJSON(t, resp, &out)
+	if out.Citations == nil {
+		t.Fatal("citations must be [] not null for anonymous recall")
+	}
+}
+
+func TestAnonymousTurn_SearchShape(t *testing.T) {
+	sid := uniqueID("anon-search")
+
+	resp := postJSON(t, "/turns", anonymousTurnBody(sid, "My favourite language is Rust"))
+	mustStatus(t, resp, 201)
+	resp.Body.Close()
+
+	body := fmt.Sprintf(`{"query":"favourite language","session_id":%q,"limit":5}`, sid)
+	resp = postJSON(t, "/search", body)
+	mustStatus(t, resp, 200)
+
+	var out struct {
+		Results []json.RawMessage `json:"results"`
+	}
+	decodeJSON(t, resp, &out)
+	if out.Results == nil {
+		t.Fatal("results must be [] not null for anonymous search")
+	}
+}
+
+func TestAnonymousSessionIsolation_NoBleed(t *testing.T) {
+	sidA := uniqueID("anon-a")
+	sidB := uniqueID("anon-b")
+
+	// Write distinct facts into two separate anonymous sessions.
+	resp := postJSON(t, "/turns", anonymousTurnBody(sidA, "I am a baker who makes croissants"))
+	mustStatus(t, resp, 201)
+	resp.Body.Close()
+
+	resp = postJSON(t, "/turns", anonymousTurnBody(sidB, "I am an astronaut who likes space"))
+	mustStatus(t, resp, 201)
+	resp.Body.Close()
+
+	// Recall from session A must not return session B data.
+	recallA := fmt.Sprintf(`{"query":"what do I do?","session_id":%q,"max_tokens":512}`, sidA)
+	resp = postJSON(t, "/recall", recallA)
+	mustStatus(t, resp, 200)
+	bodyA := readBody(t, resp)
+	if strings.Contains(strings.ToLower(bodyA), "astronaut") {
+		t.Fatalf("session A recall contains session B data ('astronaut'): %s", bodyA)
+	}
+
+	// Recall from session B must not return session A data.
+	recallB := fmt.Sprintf(`{"query":"what do I do?","session_id":%q,"max_tokens":512}`, sidB)
+	resp = postJSON(t, "/recall", recallB)
+	mustStatus(t, resp, 200)
+	bodyB := readBody(t, resp)
+	if strings.Contains(strings.ToLower(bodyB), "baker") {
+		t.Fatalf("session B recall contains session A data ('baker'): %s", bodyB)
+	}
+}
+
+func TestDeleteSession_AnonymousSession_Cleanup(t *testing.T) {
+	sid := uniqueID("anon-del")
+
+	resp := postJSON(t, "/turns", anonymousTurnBody(sid, "I live in Oslo"))
+	mustStatus(t, resp, 201)
+	resp.Body.Close()
+
+	// DELETE /sessions/{id} must succeed for anonymous sessions.
+	resp = deleteReq(t, "/sessions/"+sid)
+	mustStatus(t, resp, 204)
+	resp.Body.Close()
+
+	// Second delete is idempotent.
+	resp = deleteReq(t, "/sessions/"+sid)
+	mustStatus(t, resp, 204)
+	resp.Body.Close()
+}
+
+func TestAuthenticatedUser_UnchangedAfterAnonymousSessions(t *testing.T) {
+	uid := uniqueID("auth-user")
+	sid := uniqueID("auth-session")
+	anonSid := uniqueID("anon-coexist")
+
+	// Write an anonymous session first.
+	resp := postJSON(t, "/turns", anonymousTurnBody(anonSid, "I am anonymous and love hiking"))
+	mustStatus(t, resp, 201)
+	resp.Body.Close()
+
+	// Write an authenticated turn.
+	resp = postJSON(t, "/turns", validTurnBody(sid, uid))
+	mustStatus(t, resp, 201)
+	resp.Body.Close()
+
+	// Authenticated recall returns correct shape.
+	body := fmt.Sprintf(`{"query":"where does the user live?","session_id":%q,"user_id":%q,"max_tokens":512}`, sid, uid)
+	resp = postJSON(t, "/recall", body)
+	mustStatus(t, resp, 200)
+
+	var out struct {
+		Context   string          `json:"context"`
+		Citations []json.RawMessage `json:"citations"`
+	}
+	decodeJSON(t, resp, &out)
+	if out.Citations == nil {
+		t.Fatal("citations must not be null for authenticated recall")
+	}
+
+	// Anonymous data must not appear in authenticated user's context.
+	if strings.Contains(strings.ToLower(out.Context), "anonymous") {
+		t.Fatalf("authenticated recall contains anonymous session data: %s", out.Context)
+	}
+
+	deleteReq(t, "/users/"+uid)
+}
+
+func TestAnonymousRecall_EmptyForUnknownSession(t *testing.T) {
+	sid := "session-that-never-existed-anon"
+	body := fmt.Sprintf(`{"query":"anything","session_id":%q,"max_tokens":512}`, sid)
+	resp := postJSON(t, "/recall", body)
+	mustStatus(t, resp, 200)
+
+	var out struct {
+		Context   string          `json:"context"`
+		Citations []json.RawMessage `json:"citations"`
+	}
+	decodeJSON(t, resp, &out)
+	if out.Citations == nil {
+		t.Fatal("citations must be [] not null for unknown anonymous session")
+	}
+}
+
 func TestMemories_ResponseShape(t *testing.T) {
 	uid := uniqueID("user")
 	sid := uniqueID("session")

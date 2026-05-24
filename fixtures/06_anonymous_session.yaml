@@ -1,0 +1,44 @@
+name: anonymous_session
+description: >
+  Verify that /turns without user_id stores memories under session scope and
+  that /recall by session_id retrieves them correctly.
+  Introduced in v1.7.0 when user_id was made optional (session-scoped extraction).
+
+conversations:
+  - session_id: anon-s1
+    # user_id intentionally absent — session-scoped anonymous turn
+    timestamp: 2025-04-01T10:00:00Z
+    messages:
+      - role: user
+        content: "I have been a backend software engineer for eight years, mostly in Go."
+      - role: assistant
+        content: "That's a solid run. Any favourite parts of the stack?"
+      - role: user
+        content: "Definitely the systems side — databases, caches, message queues.
+          Right now I am working on a distributed key-value store."
+
+probes:
+  # Recall uses the same session_id and no user_id — verifies session-scope retrieval.
+  - query: "What does this person do for work?"
+    session_id: anon-s1
+    # user_id intentionally absent
+    max_tokens: 512
+    expected_facts:
+      - "software engineer"
+      - "Go"
+    not_expected_facts: []
+    judge_assertions:
+      - claim: "The person is a software engineer"
+        should_be_true: true
+      - claim: "The person is a doctor"
+        should_be_true: false
+
+  - query: "What technical areas does this person specialise in?"
+    session_id: anon-s1
+    max_tokens: 512
+    expected_facts:
+      - "databases"
+    not_expected_facts: []
+    judge_assertions:
+      - claim: "The person works on distributed systems or databases"
+        should_be_true: true

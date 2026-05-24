@@ -1,0 +1,53 @@
+name: authenticated_coexistence
+description: >
+  Verify that authenticated user recall works correctly when anonymous sessions
+  exist in the database alongside it. The authenticated user's memories must
+  be scoped to their user_id and must not bleed into the anonymous session,
+  and vice versa.
+
+conversations:
+  # Anonymous session — data must NOT appear in the authenticated user's recall.
+  - session_id: ac-anon-s1
+    # user_id intentionally absent
+    timestamp: 2025-04-02T09:00:00Z
+    messages:
+      - role: user
+        content: "I am a pastry chef specialising in French macarons. I work in Lyon."
+      - role: assistant
+        content: "Sounds delicious!"
+
+  # Authenticated user — separate scope, separate facts.
+  - session_id: ac-auth-s1
+    user_id: ac-u1
+    timestamp: 2025-04-02T10:00:00Z
+    messages:
+      - role: user
+        content: "I am a machine learning engineer at DeepMind in London.
+          I work primarily on reinforcement learning research."
+      - role: assistant
+        content: "Exciting work — what problems are you tackling?"
+      - role: user
+        content: "Mostly reward modelling and alignment. Long-horizon planning is
+          where I spend most of my time."
+
+probes:
+  # Authenticated user probe — should see their own facts, not the anonymous session's.
+  - query: "What does this person work on?"
+    session_id: ac-auth-probe
+    user_id: ac-u1
+    max_tokens: 512
+    expected_facts:
+      - "DeepMind"
+      - "reinforcement learning"
+    not_expected_facts:
+      # These come from the anonymous session and must NOT appear for ac-u1.
+      - "macaron"
+      - "pastry"
+      - "Lyon"
+    judge_assertions:
+      - claim: "The person works at DeepMind as a machine learning engineer"
+        should_be_true: true
+      - claim: "The person is a chef"
+        should_be_true: false
+      - claim: "The person works on reinforcement learning"
+        should_be_true: true

@@ -119,3 +119,16 @@ func validTurnBody(sessionID, userID string) string {
 		"metadata": {}
 	}`, sessionID, userID)
 }
+
+// anonymousTurnBody builds a POST /turns body without user_id (session-scoped).
+func anonymousTurnBody(sessionID, content string) string {
+	return fmt.Sprintf(`{
+		"session_id": %q,
+		"messages": [
+			{"role": "user", "content": %q},
+			{"role": "assistant", "content": "Got it!"}
+		],
+		"timestamp": "2025-03-15T10:00:00Z",
+		"metadata": {}
+	}`, sessionID, content)
+}
