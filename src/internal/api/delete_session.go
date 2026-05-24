@@ -16,10 +16,11 @@ import (
 )
 
 // NewDeleteSessionHandler handles DELETE /sessions/{session_id}.
-// Removes only the conversation log; derived memories are preserved.
+// Removes all data associated with the session: memories (with cascading
+// removal of entity_mentions and entity_relationships via FK) and turns.
 func NewDeleteSessionHandler(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
 		reqID := chimiddleware.GetReqID(r.Context())
 
@@ -37,9 +38,9 @@ func NewDeleteSessionHandler(pool *pgxpool.Pool) http.HandlerFunc {
 		}
 		defer tx.Rollback(ctx) //nolint:errcheck
 
-		count, err := storage.DeleteTurnsBySession(ctx, tx, req.SessionID)
+		memoriesDeleted, turnsDeleted, err := storage.DeleteSessionData(ctx, tx, req.SessionID)
 		if err != nil {
-			slog.Error("delete session turns", "error", err, "request_id", reqID, "session_id", req.SessionID)
+			slog.Error("delete session data", "error", err, "request_id", reqID, "session_id", req.SessionID)
 			writeError(w, fmt.Errorf("delete session: %w", err))
 			return
 		}
@@ -50,7 +51,10 @@ func NewDeleteSessionHandler(pool *pgxpool.Pool) http.HandlerFunc {
 			return
 		}
 
-		slog.Info("session deleted", "session_id", req.SessionID, "turns_deleted", count)
+		slog.Info("session deleted",
+			"session_id", req.SessionID,
+			"memories_deleted", memoriesDeleted,
+			"turns_deleted", turnsDeleted)
 		w.WriteHeader(http.StatusNoContent)
 	}
 }

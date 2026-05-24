@@ -88,24 +88,30 @@ func TestSearchShape(t *testing.T) {
 	}
 }
 
-func TestDeleteSessionPreservesMemories(t *testing.T) {
-	// Verifies: DELETE /sessions removes turns but preserves derived memories.
-	// In Stage 2 we verify the weaker form: DELETE /sessions returns 204 and does
-	// not delete memories that exist independently.
+func TestDeleteSessionRemovesMemories(t *testing.T) {
+	// Verifies: DELETE /sessions removes all session-associated data —
+	// turns and all memories that originated from the session.
 	uid := uniqueID("user")
 	sid := uniqueID("session")
 
-	// Write a turn
+	// Write a turn (extraction may or may not produce memories, but either way
+	// the cleanup contract holds).
 	resp := postJSON(t, "/turns", validTurnBody(sid, uid))
 	mustStatus(t, resp, 201)
+	resp.Body.Close()
 
 	// Delete the session
 	resp = deleteReq(t, "/sessions/"+sid)
 	mustStatus(t, resp, 204)
+	resp.Body.Close()
 
-	// Memories endpoint still works (returns empty, not error)
+	// Memories must be gone — no bleed from this session
 	resp = get(t, "/users/"+uid+"/memories")
 	mustStatus(t, resp, 200)
+	body := readBody(t, resp)
+	if !strings.Contains(body, `"memories":[]`) {
+		t.Fatalf("expected empty memories after session delete, got: %s", body)
+	}
 
 	// Cleanup
 	deleteReq(t, "/users/"+uid)

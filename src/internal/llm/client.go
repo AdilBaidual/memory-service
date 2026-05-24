@@ -88,11 +88,7 @@ func (c *Client) Extract(ctx context.Context, req ExtractionRequest) (*Extractio
 }
 
 func (c *Client) doExtract(ctx context.Context, req ExtractionRequest) (*ExtractionResult, error) {
-	schema, err := jsonschema.GenerateSchemaForType(llmExtractionOutput{})
-	if err != nil {
-		return nil, fmt.Errorf("generate schema: %w", err)
-	}
-
+	schema := extractionSchema()
 	prompt := buildExtractionPrompt(req)
 
 	resp, err := c.openai.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
@@ -135,6 +131,44 @@ func (c *Client) doExtract(ctx context.Context, req ExtractionRequest) (*Extract
 		})
 	}
 	return result, nil
+}
+
+// extractionSchema returns a hand-written JSON schema for llmExtractionOutput.
+// Replaces GenerateSchemaForType to add enum constraints on type and evidence —
+// without them the model occasionally returns free-text in those fields.
+func extractionSchema() *jsonschema.Definition {
+	strDef := jsonschema.Definition{Type: jsonschema.String}
+	return &jsonschema.Definition{
+		Type: jsonschema.Object,
+		Properties: map[string]jsonschema.Definition{
+			"items": {
+				Type: jsonschema.Array,
+				Items: &jsonschema.Definition{
+					Type: jsonschema.Object,
+					Properties: map[string]jsonschema.Definition{
+						"type": {
+							Type: jsonschema.String,
+							Enum: []string{"fact", "preference", "opinion", "event"},
+						},
+						"key":   strDef,
+						"value": strDef,
+						"evidence": {
+							Type: jsonschema.String,
+							Enum: []string{"explicit", "implicit"},
+						},
+						"entities": {
+							Type:  jsonschema.Array,
+							Items: &strDef,
+						},
+					},
+					Required:             []string{"type", "key", "value", "evidence", "entities"},
+					AdditionalProperties: false,
+				},
+			},
+		},
+		Required:             []string{"items"},
+		AdditionalProperties: false,
+	}
 }
 
 // withRetry retries fn up to maxAttempts times on retryable errors.

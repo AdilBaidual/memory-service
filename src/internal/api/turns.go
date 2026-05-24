@@ -13,6 +13,7 @@ import (
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"memory-service/internal/consolidation"
 	"memory-service/internal/extraction"
 	"memory-service/internal/storage"
 )
@@ -137,22 +138,20 @@ func NewTurnsHandler(pool *pgxpool.Pool, ext *extraction.Extractor) http.Handler
 				embedding = nil
 			}
 
-			_, insErr := storage.InsertMemory(ctx, tx2, storage.InsertMemoryParams{
-				UserID:        *req.UserID,
-				Type:          c.Type,
-				Key:           c.Key,
-				Value:         c.Value,
-				Evidence:      c.Evidence,
-				Confidence:    c.Confidence,
-				Entities:      marshalEntities(c.Entities),
-				Embedding:     embedding,
-				SourceSession: &req.SessionID,
-				SourceTurn:    &turnID,
-			})
-			if insErr != nil {
-				slog.Error("insert memory failed", "error", insErr, "request_id", reqID)
+			_, result, consErr := consolidation.ConsolidateFact(ctx, tx2,
+				*req.UserID, c.Type, c.Key, c.Value, c.Evidence, c.Confidence,
+				c.Entities, embedding, &req.SessionID, &turnID,
+			)
+			if consErr != nil {
+				slog.Error("consolidate memory failed", "error", consErr, "request_id", reqID)
 			} else {
 				inserted++
+				slog.Debug("memory consolidated",
+					"result", result.String(),
+					"type", c.Type,
+					"key", c.Key,
+					"user_id", *req.UserID,
+				)
 			}
 		}
 

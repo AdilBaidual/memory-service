@@ -5,6 +5,58 @@ Entries are in reverse chronological order.
 
 ---
 
+## v1.1.2 — Fix DELETE /sessions to remove all session-associated data
+
+Corrects DELETE /sessions/{session_id} to delete memories (and cascading
+entity graph edges) in addition to turns. The previous implementation
+retained memories after session deletion, causing cross-session fact bleed
+when the eval harness reused user_ids across scenarios — a direct violation
+of the "delete all data associated with a session" contract requirement.
+
+Deleting from `memories WHERE source_session = $1` is sufficient: the FK
+constraints on `entity_mentions` and `entity_relationships` carry
+`ON DELETE CASCADE` from `memories`, so those rows are removed
+automatically. The `entities` table is left intact — entities are
+user-scoped by `(name, user_id)` and may be referenced by other sessions.
+
+The service still shares knowledge across sessions for the same user_id
+during normal operation (this is the intended long-term memory behavior).
+DELETE /sessions is the explicit cleanup mechanism for removing everything
+that originated from a specific session.
+
+---
+
+## v1.1.1 — FTS config: simple → english
+
+- Switched value_tsv generated column from to_tsvector('simple', ...) to to_tsvector('english', ...)
+- Updated keyword channel queries to match: plainto_tsquery('english', ...)
+- 'english' adds stemming (working → work, employer → employ) and stopword removal
+- multi_hop recovered: 0/1 (0%) → 1/1 (100%) — stemming lets the keyword channel reach the cat/location fact
+- basic_facts regression persists: 2/3 — pet probe still below top-10 cutoff
+- OVERALL: 4/6 (67%), 1 violation → 5/6 (83%), 1 violation
+
+---
+
+## v1.1.0 — Consolidation and hybrid retrieval
+
+- Consolidation check (ADD / NOOP / UPDATE) runs before every memory insert
+- Contradicting fact: old row marked inactive (active=false, valid_to=NOW()), new row inserted with supersedes pointer
+- Matching value: updated_at touched (NOOP) — no duplicate row created
+- Events and keyless items always ADD — nothing to consolidate against
+- FTS channel added: Postgres full-text search on value_tsv via plainto_tsquery('simple')
+- Semantic and FTS channels run concurrently; results fused via Reciprocal Rank Fusion (k=60)
+- Each channel fetches up to 30 candidates before fusion; top-10 returned to caller
+
+Fixture quality delta vs v1.0.0 baseline:
+  - basic_facts:       3/3 (100%) → 2/3 (67%) | pet probe drops out of RRF top-10 when FTS finds no match
+  - fact_evolution:    1/1 (100%) → 1/1 (100%) | violation persists: transition event containing "Stripe" is a new ADD, not a duplicate fact
+  - multi_hop:         0/1 (0%) — unchanged, graph channel not yet implemented
+  - noise_resistance:  0 violations — unchanged
+  - opinion_arc:       1/1 (100%) → 1/1 (100%) | "game changer" violation eliminated
+  - OVERALL:           5/6 (83%), 2 violations → 4/6 (67%), 1 violation
+
+---
+
 ## v1.0.0 — Baseline extraction and semantic retrieval
 
 - LLM extraction on POST /turns via gpt-4o-mini with Structured Output (Strict mode)

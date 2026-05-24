@@ -86,9 +86,11 @@ Memories are scoped to user_id and shared across all sessions of that user
 /recall is scoped to session_id. Cross-user isolation is strict.
 
 <!-- ARCHITECTURAL NOTE:
-DELETE /sessions/{id} removes only the raw conversation log (turns
-table); derived memories are preserved as they represent long-term
-knowledge. DELETE /users/{id} removes everything. -->
+DELETE /sessions/{id} removes all data that originated from the session:
+turns and all memories tagged with source_session (entity_mentions and
+entity_relationships cascade automatically via FK). Entities themselves
+survive — they are user-scoped and may have been referenced by other
+sessions. DELETE /users/{id} removes everything across all sessions. -->
 
 ## Tradeoffs
 

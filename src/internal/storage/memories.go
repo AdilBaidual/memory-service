@@ -4,11 +4,13 @@ package storage
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	pgvector "github.com/pgvector/pgvector-go"
 )
 
@@ -51,6 +53,7 @@ type InsertMemoryParams struct {
 	Embedding     []float32       // nil means store NULL in DB
 	SourceSession *string
 	SourceTurn    *uuid.UUID
+	Supersedes    *uuid.UUID // nil when this is not a superseding update
 }
 
 // ListMemoriesFilters controls which memories are returned.
@@ -77,16 +80,16 @@ func InsertMemory(ctx context.Context, q Querier, m InsertMemoryParams) (uuid.UU
 	err := q.QueryRow(ctx, `
 		INSERT INTO memories (
 			user_id, type, key, value, evidence, confidence, entities,
-			embedding, source_session, source_turn, active,
+			embedding, source_session, source_turn, supersedes, active,
 			created_at, updated_at, metadata
 		) VALUES (
 			$1, $2::memory_type, $3, $4, $5, $6, $7,
-			$8, $9, $10, true,
+			$8, $9, $10, $11, true,
 			NOW(), NOW(), '{}'
 		) RETURNING id
 	`,
 		m.UserID, m.Type, m.Key, m.Value, m.Evidence, m.Confidence, []byte(entities),
-		embeddingArg, m.SourceSession, m.SourceTurn,
+		embeddingArg, m.SourceSession, m.SourceTurn, m.Supersedes,
 	).Scan(&id)
 	if err != nil {
 		return uuid.UUID{}, fmt.Errorf("insert memory: %w", err)
@@ -193,6 +196,72 @@ func GetOpinionTopics(ctx context.Context, q Querier, userID string) ([]string, 
 		topics = append(topics, t)
 	}
 	return topics, rows.Err()
+}
+
+// FindActiveByKey returns the single active memory for a user with the given
+// type and key, or nil if none exists.
+// Returns (nil, nil) when no row is found — NOT an error.
+func FindActiveByKey(ctx context.Context, q Querier, userID, memType, key string) (*Memory, error) {
+	var m Memory
+	err := q.QueryRow(ctx, `
+		SELECT
+			id, user_id, type, key, value, evidence, confidence,
+			entities, valid_from, valid_to, supersedes, active,
+			source_session, source_turn, created_at, updated_at, metadata
+		FROM memories
+		WHERE user_id = $1
+		  AND type    = $2::memory_type
+		  AND key     = $3
+		  AND active  = true
+		LIMIT 1
+	`, userID, memType, key).Scan(
+		&m.ID, &m.UserID, &m.Type, &m.Key, &m.Value, &m.Evidence,
+		&m.Confidence, &m.Entities, &m.ValidFrom, &m.ValidTo,
+		&m.Supersedes, &m.Active, &m.SourceSession, &m.SourceTurn,
+		&m.CreatedAt, &m.UpdatedAt, &m.Metadata,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("find active by key: %w", err)
+	}
+	if m.Entities == nil {
+		m.Entities = json.RawMessage("[]")
+	}
+	if m.Metadata == nil {
+		m.Metadata = json.RawMessage("{}")
+	}
+	return &m, nil
+}
+
+// MarkSuperseded marks a memory as inactive. Used by the consolidation UPDATE path.
+func MarkSuperseded(ctx context.Context, q Querier, id uuid.UUID) error {
+	_, err := q.Exec(ctx, `
+		UPDATE memories
+		SET active     = false,
+		    valid_to   = NOW(),
+		    updated_at = NOW()
+		WHERE id = $1
+	`, id)
+	if err != nil {
+		return fmt.Errorf("mark superseded: %w", err)
+	}
+	return nil
+}
+
+// TouchMemory updates updated_at to NOW() without changing any other fields.
+// Used by the consolidation NOOP path to signal "still current".
+func TouchMemory(ctx context.Context, q Querier, id uuid.UUID) error {
+	_, err := q.Exec(ctx, `
+		UPDATE memories
+		SET updated_at = NOW()
+		WHERE id = $1
+	`, id)
+	if err != nil {
+		return fmt.Errorf("touch memory: %w", err)
+	}
+	return nil
 }
 
 // buildListFilters returns WHERE clauses and args for ListMemoriesByUser filters.

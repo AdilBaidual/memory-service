@@ -63,14 +63,24 @@ func (e *Extractor) Extract(
 		if strings.TrimSpace(item.Value) == "" {
 			continue
 		}
+		memType := normalizeType(item.Type)
+		if memType != item.Type {
+			slog.Warn("llm returned unexpected type, normalized",
+				"raw", item.Type, "normalized", memType, "user_id", userID)
+		}
+		evidence := normalizeEvidence(item.Evidence)
+		if evidence != item.Evidence {
+			slog.Warn("llm returned unexpected evidence, normalized",
+				"raw", item.Evidence, "normalized", evidence, "user_id", userID)
+		}
 		key := strings.TrimSpace(item.Key)
 		candidates = append(candidates, Candidate{
-			Type:       item.Type,
+			Type:       memType,
 			Key:        nullableKey(key),
 			Value:      item.Value,
-			Evidence:   item.Evidence,
+			Evidence:   evidence,
 			Entities:   item.Entities,
-			Confidence: computeConfidence(item.Evidence),
+			Confidence: computeConfidence(evidence),
 		})
 	}
 	return candidates, nil
@@ -105,6 +115,7 @@ func formatConversation(messages []storage.TurnMessage) string {
 
 // computeConfidence returns a confidence score based on the evidence type.
 // Confidence is computed by the system; it is never requested from the LLM.
+// Expects a normalised value ("explicit" or "implicit") — call normalizeEvidence first.
 func computeConfidence(evidence string) float32 {
 	switch evidence {
 	case "explicit":
@@ -114,6 +125,29 @@ func computeConfidence(evidence string) float32 {
 	default:
 		return 0.80
 	}
+}
+
+// normalizeType coerces the LLM-returned type to one of the valid enum values.
+// Falls back to "fact" on anything unexpected.
+func normalizeType(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "fact", "preference", "opinion", "event":
+		return strings.ToLower(strings.TrimSpace(s))
+	}
+	return "fact"
+}
+
+// normalizeEvidence coerces the LLM-returned evidence to "explicit" or "implicit".
+// If the raw value contains either keyword it is recovered; otherwise defaults to "implicit".
+func normalizeEvidence(s string) string {
+	lower := strings.ToLower(strings.TrimSpace(s))
+	if lower == "explicit" || lower == "implicit" {
+		return lower
+	}
+	if strings.Contains(lower, "explicit") {
+		return "explicit"
+	}
+	return "implicit"
 }
 
 func nullableKey(s string) *string {

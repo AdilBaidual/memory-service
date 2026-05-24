@@ -65,7 +65,7 @@ CREATE TABLE memories (
     active          BOOLEAN NOT NULL DEFAULT true,
     embedding       VECTOR(1536),
     value_tsv       TSVECTOR GENERATED ALWAYS AS (
-        to_tsvector('simple', COALESCE(value, '') || ' ' || COALESCE(key, ''))
+        to_tsvector('english', COALESCE(value, '') || ' ' || COALESCE(key, ''))
     ) STORED,
     source_session  TEXT,
     source_turn     UUID REFERENCES turns(id) ON DELETE SET NULL,
