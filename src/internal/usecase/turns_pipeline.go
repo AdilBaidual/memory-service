@@ -13,6 +13,7 @@ import (
 	"memory-service/internal/adapters/store"
 	"memory-service/internal/service/consolidation"
 	"memory-service/internal/service/extraction"
+	"memory-service/internal/service/opinions"
 )
 
 // Non-fatal: all errors are logged, never returned.
@@ -198,8 +199,89 @@ func (uc *IngestTurnUsecase) persistMemories(
 
 	if err := tx2.Commit(ctx); err != nil {
 		slog.Error("commit memory transaction", "error", err, "user_id", *in.UserID)
-	} else {
-		slog.Info("memories inserted",
-			"count", inserted, "turn_id", turnID.String(), "user_id", *in.UserID)
+		return
 	}
+	slog.Info("memories inserted",
+		"count", inserted, "turn_id", turnID.String(), "user_id", *in.UserID)
+
+	// Opinion synthesis: runs after commit so raw opinions are visible.
+	// Non-fatal — synthesis failures never prevent turn ingestion from succeeding.
+	if uc.opinSynth != nil {
+		uc.synthesizeOpinionViews(ctx, candidates, *in.UserID, in.SessionID)
+	}
+}
+
+// synthesizeOpinionViews checks all opinion keys added this turn and generates
+// or updates a synthesized opinion_view when 2+ raw opinions exist.
+func (uc *IngestTurnUsecase) synthesizeOpinionViews(
+	ctx context.Context,
+	candidates []extraction.Candidate,
+	userID, sessionID string,
+) {
+	keys := collectOpinionKeys(candidates)
+	for _, key := range keys {
+		rawOps, err := store.GetRawOpinionsByKey(ctx, uc.pool, userID, key)
+		if err != nil {
+			slog.Warn("get raw opinions failed", "key", key, "err", err, "user_id", userID)
+			continue
+		}
+		if len(rawOps) < 2 {
+			continue
+		}
+
+		values := make([]string, len(rawOps))
+		for i, op := range rawOps {
+			values[i] = op.Value
+		}
+
+		result, err := uc.opinSynth.Synthesize(ctx, opinions.SynthesisRequest{
+			UserID:   userID,
+			Key:      key,
+			Opinions: values,
+		})
+		if err != nil {
+			slog.Warn("opinion synthesis failed", "key", key, "err", err, "user_id", userID)
+			continue
+		}
+
+		// Embed the synthesized value so recall can filter by relevance.
+		var embedding []float32
+		if uc.ext != nil {
+			embCtx, embCancel := context.WithTimeout(ctx, 10*time.Second)
+			embedding, _ = uc.ext.Embed(embCtx, result.Value)
+			embCancel()
+		}
+
+		tx3, err := uc.pool.Begin(ctx)
+		if err != nil {
+			slog.Warn("begin opinion_view tx failed", "key", key, "err", err)
+			continue
+		}
+		if err := store.UpsertOpinionView(ctx, tx3, userID, key, result.Value, &sessionID, embedding); err != nil {
+			tx3.Rollback(ctx) //nolint:errcheck
+			slog.Warn("upsert opinion_view failed", "key", key, "err", err, "user_id", userID)
+			continue
+		}
+		if err := tx3.Commit(ctx); err != nil {
+			slog.Warn("commit opinion_view tx failed", "key", key, "err", err)
+		} else {
+			slog.Info("opinion_view upserted", "key", key, "user_id", userID)
+		}
+	}
+}
+
+// collectOpinionKeys returns deduplicated keys from opinion candidates.
+func collectOpinionKeys(candidates []extraction.Candidate) []string {
+	seen := make(map[string]bool)
+	var keys []string
+	for _, c := range candidates {
+		if c.Type == "opinion" && c.Key != nil && *c.Key != "" {
+			k := *c.Key
+			if !seen[k] {
+				seen[k] = true
+				keys = append(keys, k)
+			}
+		}
+	}
+	return keys
 }

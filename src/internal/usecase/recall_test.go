@@ -27,7 +27,7 @@ func (m *MockRetriever) Retrieve(ctx context.Context, params retrieval.RetrieveP
 
 func TestRecallUsecase_NoUserID_ReturnsEmpty(t *testing.T) {
 	r := new(MockRetriever)
-	uc := NewRecallUsecase(r)
+	uc := NewRecallUsecase(r, nil, nil)
 	out := uc.Recall(context.Background(), RecallInput{Query: "test"})
 	assert.Empty(t, out.Context)
 	assert.Equal(t, []Citation{}, out.Citations)
@@ -35,7 +35,7 @@ func TestRecallUsecase_NoUserID_ReturnsEmpty(t *testing.T) {
 }
 
 func TestRecallUsecase_NilRetriever_ReturnsEmpty(t *testing.T) {
-	uc := NewRecallUsecase(nil)
+	uc := NewRecallUsecase(nil, nil, nil)
 	uid := "user-1"
 	out := uc.Recall(context.Background(), RecallInput{Query: "test", UserID: &uid})
 	assert.Empty(t, out.Context)
@@ -45,7 +45,7 @@ func TestRecallUsecase_NilRetriever_ReturnsEmpty(t *testing.T) {
 func TestRecallUsecase_RetrieverError_ReturnsEmpty(t *testing.T) {
 	r := new(MockRetriever)
 	r.On("Retrieve", mock.Anything, mock.Anything).Return(nil, errors.New("db error"))
-	uc := NewRecallUsecase(r)
+	uc := NewRecallUsecase(r, nil, nil)
 	uid := "user-1"
 	out := uc.Recall(context.Background(), RecallInput{Query: "test", UserID: &uid})
 	assert.Empty(t, out.Context)
@@ -56,7 +56,7 @@ func TestRecallUsecase_RetrieverError_ReturnsEmpty(t *testing.T) {
 func TestRecallUsecase_NoMemories_ReturnsEmpty(t *testing.T) {
 	r := new(MockRetriever)
 	r.On("Retrieve", mock.Anything, mock.Anything).Return([]retrieval.RetrievedMemory{}, nil)
-	uc := NewRecallUsecase(r)
+	uc := NewRecallUsecase(r, nil, nil)
 	uid := "user-1"
 	out := uc.Recall(context.Background(), RecallInput{Query: "test", UserID: &uid})
 	assert.Empty(t, out.Context)
@@ -82,7 +82,7 @@ func TestRecallUsecase_HappyPath_BuildsContext(t *testing.T) {
 	}
 	r := new(MockRetriever)
 	r.On("Retrieve", mock.Anything, mock.Anything).Return(mems, nil)
-	uc := NewRecallUsecase(r)
+	uc := NewRecallUsecase(r, nil, nil)
 	uid := "user-1"
 	out := uc.Recall(context.Background(), RecallInput{Query: "name", UserID: &uid})
 	assert.Contains(t, out.Context, "Alice")
@@ -101,7 +101,7 @@ func TestRecallUsecase_DuplicateTurns_DeduplicatesCitations(t *testing.T) {
 	}
 	r := new(MockRetriever)
 	r.On("Retrieve", mock.Anything, mock.Anything).Return(mems, nil)
-	uc := NewRecallUsecase(r)
+	uc := NewRecallUsecase(r, nil, nil)
 	uid := "user-1"
 	out := uc.Recall(context.Background(), RecallInput{Query: "location", UserID: &uid})
 	assert.Len(t, out.Citations, 1, "same turn_id should appear only once")

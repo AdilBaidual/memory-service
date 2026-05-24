@@ -75,3 +75,43 @@ func NewPoolMemoryLister(pool *pgxpool.Pool) *PoolMemoryLister {
 func (l *PoolMemoryLister) ListMemoriesByUser(ctx context.Context, userID string, f ListMemoriesFilters) ([]Memory, error) {
 	return ListMemoriesByUser(ctx, l.pool, userID, f)
 }
+
+// CountMemoriesByUser returns the total count of matching memories (ignoring limit/offset).
+func (l *PoolMemoryLister) CountMemoriesByUser(ctx context.Context, userID string, f ListMemoriesFilters) (int, error) {
+	return CountMemoriesByUser(ctx, l.pool, userID, f)
+}
+
+// PoolStableMemoryLoader implements usecase.StableMemoryLoader using a pool.
+type PoolStableMemoryLoader struct {
+	pool *pgxpool.Pool
+}
+
+// NewPoolStableMemoryLoader constructs a PoolStableMemoryLoader.
+func NewPoolStableMemoryLoader(pool *pgxpool.Pool) *PoolStableMemoryLoader {
+	return &PoolStableMemoryLoader{pool: pool}
+}
+
+// GetActiveMemoriesByTypes returns active memories of the given types for a user.
+func (s *PoolStableMemoryLoader) GetActiveMemoriesByTypes(ctx context.Context, userID string, types []string) ([]Memory, error) {
+	return GetActiveMemoriesByTypes(ctx, s.pool, userID, types)
+}
+
+// GetActiveOpinionViewsWithEmbeddings returns active opinion_view memories with their embeddings.
+func (s *PoolStableMemoryLoader) GetActiveOpinionViewsWithEmbeddings(ctx context.Context, userID string) ([]OpinionViewWithEmbedding, error) {
+	return GetActiveOpinionViewsWithEmbeddings(ctx, s.pool, userID)
+}
+
+// PoolSessionQuerier implements usecase.SessionQuerier using a pool.
+type PoolSessionQuerier struct {
+	pool *pgxpool.Pool
+}
+
+// NewPoolSessionQuerier constructs a PoolSessionQuerier.
+func NewPoolSessionQuerier(pool *pgxpool.Pool) *PoolSessionQuerier {
+	return &PoolSessionQuerier{pool: pool}
+}
+
+// GetMemoriesBySession returns active memories from a specific session.
+func (s *PoolSessionQuerier) GetMemoriesBySession(ctx context.Context, sessionID string, limit int) ([]Memory, error) {
+	return GetMemoriesBySession(ctx, s.pool, sessionID, limit)
+}

@@ -5,6 +5,7 @@ package llm
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	openai "github.com/sashabaranov/go-openai"
@@ -55,6 +56,15 @@ func withRetry(ctx context.Context, maxAttempts int, fn func() error) error {
 		}
 	}
 	return lastErr
+}
+
+// CreateChatCompletion proxies the underlying OpenAI chat completion call.
+// Returns an error when the client is nil (no API key configured).
+func (c *Client) CreateChatCompletion(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
+	if c == nil {
+		return openai.ChatCompletionResponse{}, fmt.Errorf("llm client not configured: OPENAI_API_KEY is not set")
+	}
+	return c.openai.CreateChatCompletion(ctx, req)
 }
 
 // isRetryable returns true for transient errors worth retrying.

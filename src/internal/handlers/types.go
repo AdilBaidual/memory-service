@@ -85,4 +85,7 @@ type MemoryView struct {
 
 type MemoriesListResponse struct {
 	Memories []MemoryView `json:"memories"`
+	Total    int          `json:"total"`
+	Limit    int          `json:"limit"`
+	Offset   int          `json:"offset"`
 }

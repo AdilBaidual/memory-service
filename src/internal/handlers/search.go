@@ -20,9 +20,10 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	out := h.search.Search(ctx, usecase.SearchInput{
-		Query:  req.Query,
-		UserID: req.UserID,
-		Limit:  req.Limit,
+		Query:     req.Query,
+		UserID:    req.UserID,
+		SessionID: req.SessionID,
+		Limit:     req.Limit,
 	})
 
 	results := make([]SearchResult, len(out.Results))

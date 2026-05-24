@@ -35,7 +35,7 @@ func (h *Handler) handleListMemories(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, buildMemoriesResponse(out.Memories))
+	writeJSON(w, http.StatusOK, buildMemoriesResponse(out))
 }
 
 type MemoriesRequest struct {
@@ -72,16 +72,28 @@ func parseMemoriesRequest(r *http.Request) (*MemoriesRequest, error) {
 		}
 		filters.Limit = n
 	}
+	if v := q.Get("offset"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return nil, &apiError{http.StatusBadRequest, "invalid offset param"}
+		}
+		filters.Offset = n
+	}
 
 	return &MemoriesRequest{UserID: userID, Filters: filters}, nil
 }
 
-func buildMemoriesResponse(mems []store.Memory) MemoriesListResponse {
-	views := make([]MemoryView, len(mems))
-	for i, m := range mems {
+func buildMemoriesResponse(out usecase.MemoriesOutput) MemoriesListResponse {
+	views := make([]MemoryView, len(out.Memories))
+	for i, m := range out.Memories {
 		views[i] = memoryToView(m)
 	}
-	return MemoriesListResponse{Memories: views}
+	return MemoriesListResponse{
+		Memories: views,
+		Total:    out.Total,
+		Limit:    out.Limit,
+		Offset:   out.Offset,
+	}
 }
 
 func memoryToView(m store.Memory) MemoryView {

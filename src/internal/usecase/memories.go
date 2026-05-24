@@ -11,6 +11,7 @@ import (
 // MemoryLister abstracts the storage layer for listing memories.
 type MemoryLister interface {
 	ListMemoriesByUser(ctx context.Context, userID string, f store.ListMemoriesFilters) ([]store.Memory, error)
+	CountMemoriesByUser(ctx context.Context, userID string, f store.ListMemoriesFilters) (int, error)
 }
 
 type MemoriesInput struct {
@@ -20,6 +21,9 @@ type MemoriesInput struct {
 
 type MemoriesOutput struct {
 	Memories []store.Memory
+	Total    int
+	Limit    int
+	Offset   int
 }
 
 type ListMemoriesUsecase struct {
@@ -35,5 +39,21 @@ func (uc *ListMemoriesUsecase) List(ctx context.Context, in MemoriesInput) (Memo
 	if err != nil {
 		return MemoriesOutput{}, fmt.Errorf("list memories: %w", err)
 	}
-	return MemoriesOutput{Memories: mems}, nil
+
+	total, err := uc.lister.CountMemoriesByUser(ctx, in.UserID, in.Filters)
+	if err != nil {
+		return MemoriesOutput{}, fmt.Errorf("count memories: %w", err)
+	}
+
+	limit := in.Filters.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+
+	return MemoriesOutput{
+		Memories: mems,
+		Total:    total,
+		Limit:    limit,
+		Offset:   in.Filters.Offset,
+	}, nil
 }

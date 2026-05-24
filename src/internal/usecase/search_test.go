@@ -14,16 +14,16 @@ import (
 	"memory-service/internal/service/retrieval"
 )
 
-func TestSearchUsecase_NoUserID_ReturnsEmpty(t *testing.T) {
+func TestSearchUsecase_NoUserID_NoSession_ReturnsEmpty(t *testing.T) {
 	r := new(MockRetriever)
-	uc := NewSearchUsecase(r)
+	uc := NewSearchUsecase(r, nil)
 	out := uc.Search(context.Background(), SearchInput{Query: "test"})
 	assert.Equal(t, []SearchResultItem{}, out.Results)
 	r.AssertNotCalled(t, "Retrieve")
 }
 
 func TestSearchUsecase_NilRetriever_ReturnsEmpty(t *testing.T) {
-	uc := NewSearchUsecase(nil)
+	uc := NewSearchUsecase(nil, nil)
 	uid := "user-1"
 	out := uc.Search(context.Background(), SearchInput{Query: "test", UserID: &uid})
 	assert.Equal(t, []SearchResultItem{}, out.Results)
@@ -32,7 +32,7 @@ func TestSearchUsecase_NilRetriever_ReturnsEmpty(t *testing.T) {
 func TestSearchUsecase_RetrieverError_ReturnsEmpty(t *testing.T) {
 	r := new(MockRetriever)
 	r.On("Retrieve", mock.Anything, mock.Anything).Return(nil, errors.New("db error"))
-	uc := NewSearchUsecase(r)
+	uc := NewSearchUsecase(r, nil)
 	uid := "user-1"
 	out := uc.Search(context.Background(), SearchInput{Query: "test", UserID: &uid, Limit: 10})
 	assert.Equal(t, []SearchResultItem{}, out.Results)
@@ -50,7 +50,7 @@ func TestSearchUsecase_HappyPath_MapsResults(t *testing.T) {
 	}
 	r := new(MockRetriever)
 	r.On("Retrieve", mock.Anything, mock.Anything).Return(mems, nil)
-	uc := NewSearchUsecase(r)
+	uc := NewSearchUsecase(r, nil)
 	uid := "user-1"
 	out := uc.Search(context.Background(), SearchInput{Query: "mood", UserID: &uid, Limit: 5})
 	assert.Len(t, out.Results, 1)

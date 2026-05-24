@@ -55,6 +55,7 @@ type ListMemoriesFilters struct {
 	Active *bool
 	Key    *string
 	Limit  int
+	Offset int
 }
 
 func InsertMemory(ctx context.Context, q Querier, m InsertMemoryParams) (uuid.UUID, error) {

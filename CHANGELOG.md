@@ -5,6 +5,40 @@ Entries are in reverse chronological order.
 
 ---
 
+## v1.6.1 — Opinion view relevance filtering
+
+- Filters `opinion_view` memories in `/recall` by cosine similarity to the current query embedding before assembling context. Views below the 0.25 threshold are excluded; a minimum floor of 2 views is always kept to prevent context from going empty when queries are broad. Views without a stored embedding are included by default (safe degradation).
+- Stores the synthesized text embedding on each `opinion_view` row at synthesis time so the relevance filter has signal to work with. Embedding is computed via the same OpenAI client used for extraction; absent embedding falls back to unconditional inclusion.
+
+Fixture metrics identical to v1.6.0.
+
+---
+
+## v1.6.0 — Context assembly, opinion synthesis, and HyDE
+
+- Adds `opinion_view` synthesis. After each turn, if 2 or more raw opinions exist for the same `(user_id, key)`, a `gpt-4o-mini` call synthesizes a single paragraph capturing the evolution arc and stores it as a new `opinion_view` row, superseding the prior one for that key. Raw `opinion` rows are preserved for audit.
+- Adds HyDE (Hypothetical Document Embedding) rewriting in the semantic retrieval channel. Before embedding the query, the service generates a short hypothetical answer via `gpt-4o-mini` and embeds that instead of the raw query. FTS and graph channels use the original query unchanged so keyword and entity matching are unaffected.
+- Adds priority-based context assembly. `/recall` now returns structured markdown with four sections in order: stable facts and preferences, synthesized opinion views, retrieved memories from hybrid search, recent events. Each section is token-budgeted using tiktoken-go (cl100k_base); lower-priority sections yield space to higher-priority ones when the `max_tokens` cap is reached.
+- Adds `offset` query param to `GET /users/{id}/memories`. Response body gains `total`, `limit`, and `offset` fields for pagination.
+- Adds session-scoped `/search`. A request with `session_id` and no `user_id` returns memories sourced directly from that session rather than running hybrid retrieval.
+
+Fixture delta vs v1.5.0:
+
+    basic_facts:      3/3 (100%) — unchanged
+    fact_evolution:   1/1 (100%) — unchanged; 1 not-expected violation (Stripe
+                                   in context — bi-temporal history, expected)
+    multi_hop:        1/1 (100%) — unchanged
+    noise_resistance: 0 violations — unchanged
+    opinion_arc:      1/1 (100%) — unchanged; 1 not-expected violation
+                                   ("game changer" in context — raw opinion text
+                                   still surfaces via retrieval channel)
+    OVERALL:          6/6 (100%), 2 not-expected violations
+    JUDGE:            20/20 assertions correct (100%); up from 18/20 — opinion
+                      synthesis resolved "view has evolved over time" and context
+                      assembly resolved "Luna's location determinable from home city"
+
+---
+
 ## v1.5.0 — Temporal recency boost and Cohere reranker
 
 - Adds temporal recency boost after RRF fusion. Memory scores are multiplied by `α + (1-α) × exp(-λ × days_since_update)` with λ=0.005 (half-life ~139 days) and α=0.7. Conservative decay preserves stable facts; recency contributes at most 30% of the final score so semantic relevance still dominates.

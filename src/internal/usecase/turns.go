@@ -15,6 +15,7 @@ import (
 	"memory-service/internal/adapters/store"
 	"memory-service/internal/service/consolidation"
 	"memory-service/internal/service/extraction"
+	"memory-service/internal/service/opinions"
 )
 
 // TxPool abstracts the DB pool for transaction-managed persistence.
@@ -57,6 +58,11 @@ type RelationshipsService interface {
 	) error
 }
 
+// OpinionSynthesizer generates synthesized opinion_view from raw opinions.
+type OpinionSynthesizer interface {
+	Synthesize(ctx context.Context, req opinions.SynthesisRequest) (*opinions.SynthesisResult, error)
+}
+
 type TurnMessage struct {
 	Role    string  `json:"role"`
 	Content string  `json:"content"`
@@ -79,21 +85,23 @@ type TurnOutput struct {
 // It uses TxPool to begin and commit transactions across multi-step persistence.
 // All service calls accept store.Querier, which pgx.Tx satisfies.
 type IngestTurnUsecase struct {
-	pool    TxPool
-	ext     ExtractionService
-	cons    ConsolidationService
-	relProc RelationshipsService
+	pool      TxPool
+	ext       ExtractionService
+	cons      ConsolidationService
+	relProc   RelationshipsService
+	opinSynth OpinionSynthesizer // may be nil
 }
 
 // NewIngestTurnUsecase creates an IngestTurnUsecase.
-// Pass nil for ext to skip extraction (e.g. when no LLM key is available).
+// Pass nil for ext/opinSynth to skip those features when no LLM key is available.
 func NewIngestTurnUsecase(
 	pool TxPool,
 	ext ExtractionService,
 	cons ConsolidationService,
 	relProc RelationshipsService,
+	opinSynth OpinionSynthesizer,
 ) *IngestTurnUsecase {
-	return &IngestTurnUsecase{pool: pool, ext: ext, cons: cons, relProc: relProc}
+	return &IngestTurnUsecase{pool: pool, ext: ext, cons: cons, relProc: relProc, opinSynth: opinSynth}
 }
 
 // Ingest saves the turn synchronously within the same request.

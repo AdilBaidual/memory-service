@@ -177,7 +177,7 @@ func TestIngest_NoUserID_SkipsExtraction(t *testing.T) {
 	pool := &mockTxPool{txs: []*mockTx{{id: turnID}}}
 	ext := new(MockExtractionService)
 
-	uc := NewIngestTurnUsecase(pool, ext, new(MockConsolidationService), new(MockRelationshipsService))
+	uc := NewIngestTurnUsecase(pool, ext, new(MockConsolidationService), new(MockRelationshipsService), nil)
 	out, err := uc.Ingest(context.Background(), newTestTurn("s1", nil))
 
 	assert.NoError(t, err)
@@ -189,7 +189,7 @@ func TestIngest_NilExtractor_SkipsExtraction(t *testing.T) {
 	turnID := uuid.New()
 	pool := &mockTxPool{txs: []*mockTx{{id: turnID}}}
 
-	uc := NewIngestTurnUsecase(pool, nil, new(MockConsolidationService), new(MockRelationshipsService))
+	uc := NewIngestTurnUsecase(pool, nil, new(MockConsolidationService), new(MockRelationshipsService), nil)
 	uid := "u1"
 	out, err := uc.Ingest(context.Background(), newTestTurn("s1", &uid))
 
@@ -199,7 +199,7 @@ func TestIngest_NilExtractor_SkipsExtraction(t *testing.T) {
 
 func TestIngest_BeginTxError_ReturnsError(t *testing.T) {
 	pool := &mockTxPool{beginErr: errors.New("connection refused")}
-	uc := NewIngestTurnUsecase(pool, nil, nil, nil)
+	uc := NewIngestTurnUsecase(pool, nil, nil, nil, nil)
 
 	_, err := uc.Ingest(context.Background(), newTestTurn("s1", nil))
 	assert.ErrorContains(t, err, "begin transaction")
@@ -208,7 +208,7 @@ func TestIngest_BeginTxError_ReturnsError(t *testing.T) {
 func TestIngest_CommitError_ReturnsError(t *testing.T) {
 	tx := &mockTx{id: uuid.New(), commitErr: errors.New("commit failed")}
 	pool := &mockTxPool{txs: []*mockTx{tx}}
-	uc := NewIngestTurnUsecase(pool, nil, nil, nil)
+	uc := NewIngestTurnUsecase(pool, nil, nil, nil, nil)
 
 	_, err := uc.Ingest(context.Background(), newTestTurn("s1", nil))
 	assert.ErrorContains(t, err, "commit transaction")
@@ -235,7 +235,7 @@ func TestIngest_WithUserID_ExtractorCalled(t *testing.T) {
 
 	rel := new(MockRelationshipsService)
 
-	uc := NewIngestTurnUsecase(pool, ext, cons, rel)
+	uc := NewIngestTurnUsecase(pool, ext, cons, rel, nil)
 	uid := "u1"
 	out, err := uc.Ingest(context.Background(), newTestTurn("s1", &uid))
 
@@ -255,7 +255,7 @@ func TestIngest_ExtractionError_NonFatal(t *testing.T) {
 
 	cons := new(MockConsolidationService)
 
-	uc := NewIngestTurnUsecase(pool, ext, cons, new(MockRelationshipsService))
+	uc := NewIngestTurnUsecase(pool, ext, cons, new(MockRelationshipsService), nil)
 	uid := "u1"
 	out, err := uc.Ingest(context.Background(), newTestTurn("s1", &uid))
 
@@ -274,7 +274,7 @@ func TestIngest_ZeroCandidates_SkipsConsolidation(t *testing.T) {
 
 	cons := new(MockConsolidationService)
 
-	uc := NewIngestTurnUsecase(pool, ext, cons, new(MockRelationshipsService))
+	uc := NewIngestTurnUsecase(pool, ext, cons, new(MockRelationshipsService), nil)
 	uid := "u1"
 	out, err := uc.Ingest(context.Background(), newTestTurn("s1", &uid))
 

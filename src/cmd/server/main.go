@@ -17,6 +17,7 @@ import (
 	"memory-service/internal/handlers"
 	"memory-service/internal/service/consolidation"
 	"memory-service/internal/service/extraction"
+	"memory-service/internal/service/opinions"
 	"memory-service/internal/service/relationships"
 	"memory-service/internal/service/retrieval"
 	"memory-service/internal/usecase"
@@ -78,9 +79,14 @@ func main() {
 	cons := consolidation.NewConsolidator()
 	relProc := relationships.NewProcessor()
 
-	turnsUC := usecase.NewIngestTurnUsecase(pool, ext, cons, relProc)
-	recallUC := usecase.NewRecallUsecase(ret)
-	searchUC := usecase.NewSearchUsecase(ret)
+	var opinSynth usecase.OpinionSynthesizer
+	if llmClient != nil {
+		opinSynth = opinions.NewLLMSynthesizer(llmClient)
+	}
+
+	turnsUC := usecase.NewIngestTurnUsecase(pool, ext, cons, relProc, opinSynth)
+	recallUC := usecase.NewRecallUsecase(ret, store.NewPoolStableMemoryLoader(pool), llmClient)
+	searchUC := usecase.NewSearchUsecase(ret, store.NewPoolSessionQuerier(pool))
 	memoriesUC := usecase.NewListMemoriesUsecase(store.NewPoolMemoryLister(pool))
 	deleteSessionUC := usecase.NewDeleteSessionUsecase(store.NewPoolSessionDeleter(pool))
 	deleteUserUC := usecase.NewDeleteUserUsecase(store.NewPoolUserDeleter(pool))

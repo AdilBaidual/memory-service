@@ -7,8 +7,10 @@ import (
 	"log/slog"
 	"math"
 	"sort"
+	"strings"
 	"time"
 
+	openai "github.com/sashabaranov/go-openai"
 	"golang.org/x/sync/errgroup"
 
 	"memory-service/internal/adapters/llm"
@@ -61,7 +63,8 @@ func (r *HybridRetriever) Retrieve(
 
 	if r.client != nil {
 		g.Go(func() error {
-			emb, err := r.client.Embed(gctx, params.Query)
+			hydeQuery := r.hydeRewrite(gctx, params.Query)
+			emb, err := r.client.Embed(gctx, hydeQuery)
 			if err != nil {
 				slog.Warn("semantic channel failed", "err", err)
 				return nil
@@ -189,4 +192,44 @@ func (r *HybridRetriever) applyReranker(
 		reranked[i] = m
 	}
 	return reranked
+}
+
+const hydeSystemPrompt = `You are helping a memory retrieval system.
+Given a question about a person, write a single sentence that represents
+a plausible factual answer about that person. Write as if you know the
+answer. Be specific and concrete.
+
+Examples:
+Q: "What does the user do for work?"
+A: "The user works as a software engineer at a technology company."
+
+Q: "Where does the user live?"
+A: "The user lives in a city in Europe."
+
+Q: "What is the user's opinion on TypeScript?"
+A: "The user believes TypeScript is useful for large projects but adds complexity for small teams."
+
+Return only the hypothetical answer sentence, nothing else.`
+
+// hydeRewrite generates a hypothetical answer to embed instead of the raw query.
+// Applied only to the semantic channel; FTS and graph use the original query.
+// Returns original query on any error (graceful degradation).
+func (r *HybridRetriever) hydeRewrite(ctx context.Context, query string) string {
+	if r.client == nil {
+		return query
+	}
+	resp, err := r.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+		Model: openai.GPT4oMini,
+		Messages: []openai.ChatCompletionMessage{
+			{Role: openai.ChatMessageRoleSystem, Content: hydeSystemPrompt},
+			{Role: openai.ChatMessageRoleUser, Content: query},
+		},
+		MaxTokens:   80,
+		Temperature: 0,
+	})
+	if err != nil || len(resp.Choices) == 0 {
+		slog.Warn("hyde rewrite failed, using original query", "err", err)
+		return query
+	}
+	return strings.TrimSpace(resp.Choices[0].Message.Content)
 }

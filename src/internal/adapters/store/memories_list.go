@@ -37,6 +37,10 @@ func ListMemoriesByUser(ctx context.Context, q Querier, userID string, f ListMem
 	if limit > 1000 {
 		limit = 1000
 	}
+	offset := f.Offset
+	if offset < 0 {
+		offset = 0
+	}
 
 	const base = `
 		SELECT id, user_id, type, key, value, evidence, confidence, entities,
@@ -52,8 +56,11 @@ func ListMemoriesByUser(ctx context.Context, q Querier, userID string, f ListMem
 	if len(filterClauses) > 0 {
 		query += " AND " + strings.Join(filterClauses, " AND ")
 	}
-	query += fmt.Sprintf(" ORDER BY active DESC, type, key, created_at DESC LIMIT $%d", len(args)+1)
-	args = append(args, limit)
+	query += fmt.Sprintf(
+		" ORDER BY active DESC, type, key, created_at DESC LIMIT $%d OFFSET $%d",
+		len(args)+1, len(args)+2,
+	)
+	args = append(args, limit, offset)
 
 	rows, err := q.Query(ctx, query, args...)
 	if err != nil {
@@ -84,4 +91,24 @@ func ListMemoriesByUser(ctx context.Context, q Querier, userID string, f ListMem
 		return nil, fmt.Errorf("iterate memories: %w", err)
 	}
 	return memories, nil
+}
+
+// CountMemoriesByUser returns the total number of memories for a user matching
+// the given filters (ignoring Limit and Offset).
+func CountMemoriesByUser(ctx context.Context, q Querier, userID string, f ListMemoriesFilters) (int, error) {
+	const base = `SELECT COUNT(*) FROM memories WHERE user_id = $1`
+
+	filterClauses, filterArgs := buildListFilters(f, 2)
+	args := append([]any{userID}, filterArgs...)
+
+	query := base
+	if len(filterClauses) > 0 {
+		query += " AND " + strings.Join(filterClauses, " AND ")
+	}
+
+	var count int
+	if err := q.QueryRow(ctx, query, args...).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count memories by user: %w", err)
+	}
+	return count, nil
 }
