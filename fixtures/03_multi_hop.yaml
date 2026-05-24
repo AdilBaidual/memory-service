@@ -4,8 +4,11 @@ description: >
   completely separate sessions with no linguistic overlap.
   The probe query asks about the cat's location without mentioning "city" or
   "Amsterdam", so cosine-only retrieval cannot bridge the gap once noise fills
-  top-k. Graph traversal (Luna → owned_by → mh-u1 → lives_in → Amsterdam)
-  is the only reliable path. Expected to FAIL at Stage 3, PASS at Stage 5.
+  top-k. Noise deliberately includes travel sessions with "evening" + foreign
+  city content, which outrank the Amsterdam memory on both cosine and FTS for
+  any evening-location query, displacing it from top-10. Graph traversal
+  (Luna → owned_by → mh-u1 → lives_in → Amsterdam) is the only reliable path.
+  Expected to FAIL at Stage 3, PASS at Stage 5.
 
 conversations:
 
@@ -38,55 +41,60 @@ conversations:
         content: "Amsterdam. Moved here from Rotterdam four years ago."
 
   # ── Noise ────────────────────────────────────────────────────────────────
-  # 12 unrelated sessions that fill top-k slots so Amsterdam is pushed out
-  # when the probe asks about the cat's evening habits (no "city" keyword).
+  # Sessions designed to fill top-k with evening+city memories that are NOT
+  # Amsterdam. The first six are travel episodes: each contains "evening(s)"
+  # and a foreign city, so they outrank the Amsterdam memory on cosine for any
+  # evening-location probe (the Amsterdam memory never mentions "evening").
+  # The remaining sessions are lifestyle facts that add retrieval depth.
   - session_id: mh-noise-01
     user_id: mh-u1
     timestamp: 2025-02-01T10:00:00Z
     messages:
       - role: user
-        content: "I've been writing Rust for about two years now. The borrow
-          checker was painful at first but now I find it liberating."
+        content: "Just back from a conference in Berlin. Spent three evenings
+          walking around Mitte — the neighbourhood has a completely different
+          energy after dark."
 
   - session_id: mh-noise-02
     user_id: mh-u1
     timestamp: 2025-02-03T10:00:00Z
     messages:
       - role: user
-        content: "Run 5k every morning before work. Started six months ago
-          and it's completely changed how I feel during the day."
+        content: "Short work trip to Copenhagen last month. The harbour evenings
+          were something else — people just bundle up and stay outside
+          no matter the cold."
 
   - session_id: mh-noise-03
     user_id: mh-u1
     timestamp: 2025-02-05T10:00:00Z
     messages:
       - role: user
-        content: "I've been vegetarian for three years. Don't miss meat at
-          all — if anything I cook more interesting food now."
+        content: "Spent a long weekend in Lisbon. Evenings in Alfama were
+          incredible — fado coming out of every door, steep cobblestone streets."
 
   - session_id: mh-noise-04
     user_id: mh-u1
     timestamp: 2025-02-07T10:00:00Z
     messages:
       - role: user
-        content: "Picked up guitar during lockdown and never put it down.
-          Play fingerstyle mostly, working through some Sungha Jung pieces."
+        content: "Had a layover in Vienna and managed an evening in the Naschmarkt
+          area. Stayed out late just wandering — the city is built for that."
 
   - session_id: mh-noise-05
     user_id: mh-u1
     timestamp: 2025-02-09T10:00:00Z
     messages:
       - role: user
-        content: "Just finished The Martian for the second time. Andy Weir
-          is my favourite author — Project Hail Mary is even better."
+        content: "Warsaw for a week in January. Evenings were surprisingly lively
+          for winter — the old town is beautifully lit after dark."
 
   - session_id: mh-noise-06
     user_id: mh-u1
     timestamp: 2025-02-11T10:00:00Z
     messages:
       - role: user
-        content: "Switched to black coffee, no sugar, two years ago.
-          Took a month to adjust but now I can't stand sweet coffee."
+        content: "Quick trip to Prague last year. The evenings there feel almost
+          theatrical — bridges, river, old buildings all lit up."
 
   - session_id: mh-noise-07
     user_id: mh-u1

@@ -21,6 +21,7 @@ services:
       dockerfile: tests/Dockerfile
     environment:
       SERVICE_URL: http://memory-service:8080
+      OPENAI_API_KEY:
     depends_on:
       memory-service:
         condition: service_healthy

@@ -5,24 +5,64 @@ Entries are in reverse chronological order.
 
 ---
 
-## v1.1.2 — Fix DELETE /sessions to remove all session-associated data
+## v1.1.5 — LLM-as-judge assertions in fixture runner
 
-Corrects DELETE /sessions/{session_id} to delete memories (and cascading
-entity graph edges) in addition to turns. The previous implementation
-retained memories after session deletion, causing cross-session fact bleed
-when the eval harness reused user_ids across scenarios — a direct violation
-of the "delete all data associated with a session" contract requirement.
+Adds `judge_assertions` to fixture probes and a `judgeAssertion` function to the test runner.
 
-Deleting from `memories WHERE source_session = $1` is sufficient: the FK
-constraints on `entity_mentions` and `entity_relationships` carry
-`ON DELETE CASCADE` from `memories`, so those rows are removed
-automatically. The `entities` table is left intact — entities are
-user-scoped by `(name, user_id)` and may be referenced by other sessions.
+Substring matching cannot distinguish "currently works at Stripe" from "previously worked at Stripe" — both contain "Stripe". The LLM judge evaluates semantic meaning rather than substrings, enabling precise assertions about current vs. historical state.
 
-The service still shares knowledge across sessions for the same user_id
-during normal operation (this is the intended long-term memory behavior).
-DELETE /sessions is the explicit cleanup mechanism for removing everything
-that originated from a specific session.
+---
+
+## v1.1.4 — Opinion accumulation and fixture hardening
+
+Opinions and events now always insert as independent active rows (`supersedes=nil`).
+Previously routed through `ConsolidateFact`, each new opinion on the same topic
+superseded the prior one — collapsing the evolution arc to a single row.
+Facts and preferences retain the consolidation path unchanged.
+
+The multi_hop fixture noise was also hardened. The original 20 noise sessions
+were lifestyle facts (hobbies, habits) with no city or evening content, so the
+Amsterdam memory had no semantic competition and surfaced in top-10 via cosine
+alone — graph traversal was never exercised. Six noise sessions were replaced
+with travel episodes that explicitly mention evenings in other European cities
+(Berlin, Copenhagen, Lisbon, Vienna, Warsaw, Prague). These rank above Amsterdam
+for any evening-location probe because the Amsterdam memory contains no "evening"
+signal. The scenario now correctly fails without the entity graph channel.
+
+Fixture results:
+  basic_facts:      3/3 (100%)
+  fact_evolution:   1/1 (100%), 1 violation — "Stripe" persists
+  multi_hop:        0/1 (0%) — correctly fails; graph channel not yet implemented
+  noise_resistance: 0 violations
+  opinion_arc:      1/1 (100%), 1 violation — "game changer" present
+  OVERALL:          5/6 (83%), 2 violations
+
+The multi_hop result dropped from the 1/1 reported in v1.1.3 — that was a false
+pass caused by insufficient noise. The opinion_arc violation returned for the
+same reason described under the previous entry: it was an artifact of data loss
+under consolidation, not a retrieval improvement. Both violations are expected
+at this retrieval configuration and will be resolved in later stages.
+
+---
+
+## v1.1.3 — Keyword channel recall
+
+Switches FTS queries from AND to OR semantics. `plainto_tsquery` produces a
+strict AND query; a natural-language probe like "What does the user think about
+TypeScript?" fails any memory missing even one token. The fix rewrites the query
+using a CTE over `to_tsvector` lexemes joined with `|`, matching any document
+that shares at least one key term. Schema unchanged.
+
+---
+
+## v1.1.2 — Session deletion scope
+
+DELETE /sessions now removes associated memories and cascaded entity graph edges
+in addition to turns. Previously, memories were retained on session delete, causing
+cross-session fact bleed when user IDs were reused across runs. Deleting
+`memories WHERE source_session = $1` is sufficient — FK cascades handle
+`entity_mentions` and `entity_relationships` automatically. The `entities` table
+is preserved: entities are user-scoped and may span multiple sessions.
 
 ---
 
@@ -47,13 +87,13 @@ that originated from a specific session.
 - Semantic and FTS channels run concurrently; results fused via Reciprocal Rank Fusion (k=60)
 - Each channel fetches up to 30 candidates before fusion; top-10 returned to caller
 
-Fixture quality delta vs v1.0.0 baseline:
-  - basic_facts:       3/3 (100%) → 2/3 (67%) | pet probe drops out of RRF top-10 when FTS finds no match
-  - fact_evolution:    1/1 (100%) → 1/1 (100%) | violation persists: transition event containing "Stripe" is a new ADD, not a duplicate fact
-  - multi_hop:         0/1 (0%) — unchanged, graph channel not yet implemented
-  - noise_resistance:  0 violations — unchanged
-  - opinion_arc:       1/1 (100%) → 1/1 (100%) | "game changer" violation eliminated
-  - OVERALL:           5/6 (83%), 2 violations → 4/6 (67%), 1 violation
+Fixture results:
+  basic_facts:      2/3 (67%) — pet probe drops below RRF top-10 when FTS finds no match
+  fact_evolution:   1/1 (100%), 1 violation — "Stripe" persists; the transition event inserts as ADD, not a supersede
+  multi_hop:        0/1 (0%) — graph channel not yet implemented
+  noise_resistance: 0 violations
+  opinion_arc:      1/1 (100%), 0 violations
+  OVERALL:          4/6 (67%), 1 violation
 
 ---
 

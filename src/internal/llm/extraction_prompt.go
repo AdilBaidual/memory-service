@@ -23,9 +23,13 @@ Rules:
 - evidence field:
   * explicit: user directly and clearly stated this
   * implicit: inferred from what the user said
-- entities: list only named entities directly mentioned in this item
-  (people, places, organizations, animals, objects with names).
-  Use empty array if none.
+- entities: list ALL named entities (people, places, organizations,
+  animals, named objects) that appear in this item's value field.
+  This applies to ALL types including events and opinions — never
+  leave entities empty if the value contains a proper noun.
+  Examples: "Started at Stripe" → entities: ["Stripe"]
+            "Walking Biscuit in the park" → entities: ["Biscuit"]
+            "Moved to Berlin from NYC" → entities: ["Berlin", "NYC"]
 - For tool-role messages: use their content as context only.
   Do NOT attribute tool outputs as user facts.
 - Prefer over-extraction to under-extraction. It is better to extract

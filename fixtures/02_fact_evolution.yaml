@@ -31,3 +31,10 @@ probes:
       - "Notion"
     not_expected_facts:
       - "Stripe"
+    judge_assertions:
+      - claim: "The user currently works at Stripe"
+        should_be_true: false
+      - claim: "The user currently works at Notion"
+        should_be_true: true
+      - claim: "The user previously worked at Stripe"
+        should_be_true: true

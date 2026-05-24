@@ -9,9 +9,11 @@ import (
 )
 
 // keywordSearch runs a Postgres full-text search against the value_tsv generated
-// column using the 'english' configuration. Returns up to limit results ordered
-// by ts_rank_cd descending. Returns empty slice (not error) when query produces
-// no FTS tokens.
+// column using the 'english' configuration. Builds an OR tsquery from the query's
+// lexemes so that natural-language questions ("What does the user think about X?")
+// match documents containing any key term rather than requiring all of them.
+// Returns up to limit results ordered by ts_rank_cd descending. Returns empty
+// slice (not error) when the query produces no FTS tokens.
 func keywordSearch(
 	ctx context.Context,
 	q storage.Querier,
@@ -20,15 +22,20 @@ func keywordSearch(
 	limit int,
 ) ([]storage.ScoredMemory, error) {
 	const sql = `
+		WITH qt AS (
+			SELECT string_agg(lexeme, ' | ') AS expr
+			FROM unnest(to_tsvector('english', $2))
+		)
 		SELECT
-			id, user_id, type, key, value, evidence, confidence,
-			entities, source_session, source_turn, supersedes, active,
-			valid_from, valid_to, created_at, updated_at, metadata,
-			ts_rank_cd(value_tsv, plainto_tsquery('english', $2)) AS score
-		FROM memories
-		WHERE user_id = $1
-		  AND active  = true
-		  AND value_tsv @@ plainto_tsquery('english', $2)
+			m.id, m.user_id, m.type, m.key, m.value, m.evidence, m.confidence,
+			m.entities, m.source_session, m.source_turn, m.supersedes, m.active,
+			m.valid_from, m.valid_to, m.created_at, m.updated_at, m.metadata,
+			ts_rank_cd(m.value_tsv, to_tsquery('english', qt.expr)) AS score
+		FROM memories m, qt
+		WHERE m.user_id = $1
+		  AND m.active  = true
+		  AND qt.expr   IS NOT NULL
+		  AND m.value_tsv @@ to_tsquery('english', qt.expr)
 		ORDER BY score DESC
 		LIMIT $3`
 

@@ -138,20 +138,43 @@ func NewTurnsHandler(pool *pgxpool.Pool, ext *extraction.Extractor) http.Handler
 				embedding = nil
 			}
 
-			_, result, consErr := consolidation.ConsolidateFact(ctx, tx2,
-				*req.UserID, c.Type, c.Key, c.Value, c.Evidence, c.Confidence,
-				c.Entities, embedding, &req.SessionID, &turnID,
-			)
-			if consErr != nil {
-				slog.Error("consolidate memory failed", "error", consErr, "request_id", reqID)
-			} else {
+			switch c.Type {
+			case "fact", "preference":
+				_, result, consErr := consolidation.ConsolidateFact(ctx, tx2,
+					*req.UserID, c.Type, c.Key, c.Value, c.Evidence, c.Confidence,
+					c.Entities, embedding, &req.SessionID, &turnID,
+				)
+				if consErr != nil {
+					slog.Warn("consolidation failed",
+						"type", c.Type, "key", c.Key, "err", consErr, "request_id", reqID)
+					continue
+				}
 				inserted++
 				slog.Debug("memory consolidated",
-					"result", result.String(),
-					"type", c.Type,
-					"key", c.Key,
-					"user_id", *req.UserID,
-				)
+					"result", result.String(), "type", c.Type, "key", c.Key, "user_id", *req.UserID)
+
+			case "opinion", "event":
+				entJSON, _ := json.Marshal(c.Entities)
+				_, insErr := storage.InsertMemory(ctx, tx2, storage.InsertMemoryParams{
+					UserID:        *req.UserID,
+					Type:          c.Type,
+					Key:           c.Key,
+					Value:         c.Value,
+					Evidence:      c.Evidence,
+					Confidence:    c.Confidence,
+					Entities:      json.RawMessage(entJSON),
+					Embedding:     embedding,
+					SourceSession: &req.SessionID,
+					SourceTurn:    &turnID,
+					Supersedes:    nil,
+				})
+				if insErr != nil {
+					slog.Warn("insert failed",
+						"type", c.Type, "key", c.Key, "err", insErr, "request_id", reqID)
+					continue
+				}
+				inserted++
+				slog.Debug("memory inserted", "type", c.Type, "key", c.Key, "user_id", *req.UserID)
 			}
 		}
 

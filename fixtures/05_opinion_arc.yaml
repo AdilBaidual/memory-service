@@ -142,3 +142,10 @@ probes:
       # At Stage 7 the opinion_view synthesis drops early enthusiasm and this
       # string no longer appears in context.
       - "game changer"
+    judge_assertions:
+      - claim: "The user currently has a pragmatic view of TypeScript"
+        should_be_true: true
+      - claim: "The user loves TypeScript unconditionally"
+        should_be_true: false
+      - claim: "The user's view on TypeScript has evolved over time"
+        should_be_true: true
