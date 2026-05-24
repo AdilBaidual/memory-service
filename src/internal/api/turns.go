@@ -102,7 +102,6 @@ func NewTurnsHandler(pool *pgxpool.Pool, ext *extraction.Extractor) http.Handler
 
 		llmCtx, llmCancel := context.WithTimeout(ctx, 30*time.Second)
 		defer llmCancel()
-
 		candidates, err := ext.Extract(llmCtx, pool, *req.UserID, turnMsgs)
 		if err != nil {
 			slog.Warn("extraction failed", "error", err, "request_id", reqID)
@@ -126,6 +125,9 @@ func NewTurnsHandler(pool *pgxpool.Pool, ext *extraction.Extractor) http.Handler
 
 		inserted := 0
 		for _, c := range candidates {
+			if ctx.Err() != nil {
+				break
+			}
 			embCtx, embCancel := context.WithTimeout(ctx, 10*time.Second)
 			embedding, embErr := ext.Embed(embCtx, c.Value)
 			embCancel()

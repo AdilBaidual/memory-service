@@ -1,23 +1,32 @@
 name: multi_hop
-description: "Verify 2-hop entity traversal (pet owner to city)."
+description: "Verify 2-hop entity traversal. Luna (cat) and Amsterdam (city) 
+  are mentioned in completely separate sessions with no linguistic overlap. 
+  Without entity graph traversal, cosine cannot connect them."
 
 conversations:
   - session_id: mh-s1
     user_id: mh-u1
+    timestamp: 2025-03-01T10:00:00Z
+    messages:
+      - role: user
+        content: "Got a new cat last year, her name is Luna. She's a tabby, 
+          very chatty, always wants attention when I'm working."
+      - role: assistant
+        content: "Luna sounds like quite the character!"
+      - role: user
+        content: "She really is. Best decision I ever made getting her."
+
+  - session_id: mh-s2
+    user_id: mh-u1
     timestamp: 2025-03-10T10:00:00Z
     messages:
       - role: user
-        content: >
-          My cat Luna is 3 years old and absolutely rules the apartment.
-          She's a tabby and loves sitting on my laptop.
+        content: "The weather has been terrible this week, very typical for 
+          this time of year here."
       - role: assistant
-        content: "Luna sounds like a handful! How long have you had her?"
+        content: "Where are you based?"
       - role: user
-        content: >
-          Got her as a kitten, about three years ago, right after I moved to
-          Amsterdam. I've been here almost four years now actually.
-      - role: assistant
-        content: "Amsterdam is a great city for cats with all those canals to watch."
+        content: "Amsterdam. Been living here for about four years now."
 
 probes:
   - query: "What city does Luna's owner live in?"

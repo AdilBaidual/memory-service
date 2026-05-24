@@ -76,7 +76,7 @@ func (c *Client) Extract(ctx context.Context, req ExtractionRequest) (*Extractio
 	}
 
 	var result *ExtractionResult
-	err := withRetry(4, func() error {
+	err := withRetry(ctx, 4, func() error {
 		r, err := c.doExtract(ctx, req)
 		if err != nil {
 			return err
@@ -138,8 +138,8 @@ func (c *Client) doExtract(ctx context.Context, req ExtractionRequest) (*Extract
 }
 
 // withRetry retries fn up to maxAttempts times on retryable errors.
-// Backoff between attempts: 1s, 2s, 4s.
-func withRetry(maxAttempts int, fn func() error) error {
+// Backoff between attempts: 1s, 2s, 4s. Respects ctx cancellation during sleep.
+func withRetry(ctx context.Context, maxAttempts int, fn func() error) error {
 	backoff := time.Second
 	var lastErr error
 	for i := 0; i < maxAttempts; i++ {
@@ -152,7 +152,11 @@ func withRetry(maxAttempts int, fn func() error) error {
 			return err
 		}
 		if i < maxAttempts-1 {
-			time.Sleep(backoff)
+			select {
+			case <-time.After(backoff):
+			case <-ctx.Done():
+				return ctx.Err()
+			}
 			backoff *= 2
 		}
 	}

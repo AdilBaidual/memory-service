@@ -5,6 +5,7 @@ package extraction
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"memory-service/internal/llm"
@@ -36,11 +37,13 @@ func (e *Extractor) Extract(
 
 	existingKeys, err := storage.GetCanonicalKeys(ctx, pool, userID)
 	if err != nil {
-		existingKeys = nil // non-fatal: proceed without hints
+		slog.Warn("get canonical keys failed, proceeding without hints", "error", err, "user_id", userID)
+		existingKeys = nil
 	}
 
 	existingTopics, err := storage.GetOpinionTopics(ctx, pool, userID)
 	if err != nil {
+		slog.Warn("get opinion topics failed, proceeding without hints", "error", err, "user_id", userID)
 		existingTopics = nil
 	}
 

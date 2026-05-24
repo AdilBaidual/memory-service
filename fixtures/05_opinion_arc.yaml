@@ -1,5 +1,8 @@
 name: opinion_arc
-description: "Verify opinion_view representation captures evolving views over time."
+description: "Verify opinion representation captures evolving views. 
+  Without opinion_view synthesis, context shows raw fragments 
+  without coherent arc. Key check: does the context reflect the CURRENT 
+  pragmatic stance, not just the initial enthusiasm?"
 
 conversations:
   - session_id: oa-s1
@@ -7,42 +10,39 @@ conversations:
     timestamp: 2025-01-05T10:00:00Z
     messages:
       - role: user
-        content: >
-          Been using TypeScript on a new project and I absolutely love it.
-          The type safety is incredible — catches so many bugs before runtime.
+        content: "Been using TypeScript on a new project and I absolutely 
+          love it. The type safety catches so many bugs before runtime."
       - role: assistant
-        content: "TypeScript really does make large codebases more manageable!"
+        content: "TypeScript really shines on larger codebases!"
 
   - session_id: oa-s2
     user_id: oa-u1
     timestamp: 2025-02-10T10:00:00Z
     messages:
       - role: user
-        content: >
-          Ugh, TypeScript generics are really frustrating me today. The type
-          complexity is getting out of hand on this codebase. Sometimes I miss
-          just writing plain JavaScript.
+        content: "Ugh, TypeScript generics are really frustrating me today. 
+          The type complexity is getting out of hand. Sometimes I miss 
+          just writing plain JavaScript."
       - role: assistant
-        content: "Yeah, deeply nested generics can be rough to work with."
+        content: "Deeply nested generics can be rough."
 
   - session_id: oa-s3
     user_id: oa-u1
     timestamp: 2025-03-20T10:00:00Z
     messages:
       - role: user
-        content: >
-          I've come around to a more pragmatic view on TypeScript. It's great
-          for large projects and team codebases, but for scripting or small
-          personal projects I honestly prefer Python. It's a tool, not a
-          religion.
+        content: "I've settled on a pragmatic view — TypeScript for team 
+          projects, Python for personal scripts. It's a tool, not a religion."
       - role: assistant
-        content: "That's a healthy way to think about it."
+        content: "That's a healthy way to look at it."
 
 probes:
-  - query: "What does the user think about TypeScript?"
+  - query: "What does the user currently think about TypeScript?"
     session_id: oa-probe
     user_id: oa-u1
     max_tokens: 512
     expected_facts:
-      - "TypeScript"
-    not_expected_facts: []
+      - "pragmatic"
+    not_expected_facts:
+      - "love it"
+      - "absolutely love"

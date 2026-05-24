@@ -125,6 +125,7 @@ func buildCitations(memories []retrieval.RetrievedMemory) []Citation {
 	return citations
 }
 
+// todo: улучшить
 func truncateString(s string, max int) string {
 	if len(s) <= max {
 		return s

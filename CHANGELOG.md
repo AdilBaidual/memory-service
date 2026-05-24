@@ -15,7 +15,14 @@ Entries are in reverse chronological order.
 - Context assembled as plain key: value concatenation
 - All extracted facts INSERT unconditionally (no consolidation check)
 - Graceful degradation when OPENAI_API_KEY is absent: turn saved, /recall returns empty
-- Fixture baseline: OVERALL 5/6 expected facts (83%), 1 not-expected violation
+
+Fixture baseline metrics:
+  - basic_facts:       2/3 hits (67%)
+  - fact_evolution:    1/1 hits (100%)
+  - multi_hop:         1/1 hits (100%)
+  - noise_resistance:  0 violations (negative test — checks not_expected_facts only)
+  - opinion_arc:       1/1 hits (100%)
+  - OVERALL:           5/6 (83%), 1 not-expected violation
 
 ---
 

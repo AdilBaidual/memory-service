@@ -101,7 +101,7 @@ func (c *Config) validate() error {
 }
 
 func getEnv(key, defaultVal string) string {
-	if v := os.Getenv(key); v != "" {
+	if v, ok := os.LookupEnv(key); ok {
 		return v
 	}
 	return defaultVal
