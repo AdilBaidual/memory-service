@@ -5,6 +5,34 @@ Entries are in reverse chronological order.
 
 ---
 
+## v1.3.2 — Graph scoring precision and extraction stability
+
+- Adds mention_count as an entity importance signal in hop1 scoring. hop1_memories now LEFT JOINs the entities table and multiplies the base score of 1.0 by `LEAST(1 + ln(mention_count) × 0.1, 2.0)` — an entity mentioned 15 times receives a ~27% score boost over a one-off name before RRF fusion. The boost is applied only at hop1; hop2 intentionally stays flat at 0.5 because the traversal-neighbour entity is almost always "user", which carries an extremely high mention_count and would uniformly inflate scores for unrelated memories if boosted.
+- Fixes mention_count not decrementing when a session is deleted. entity_mentions cascade-deletes automatically with memories via FK, so the per-entity loss must be computed while the rows are still present. DeleteSessionData now issues `UPDATE entities SET mention_count = GREATEST(0, mention_count - N)` grouped by entity before the memory DELETE. DeleteAllUserData is unaffected — it removes the entities rows entirely.
+- Fixes LLM extraction running at default temperature (~1.0). ChatCompletionRequest.Temperature carries `omitempty` in the go-openai struct, so a literal zero is silently dropped from the JSON body and the API falls back to its default. Sets Temperature to `math.SmallestNonzeroFloat32` (≈1.4e-45), which serialises as a non-zero value but is indistinguishable from 0 for the model. Eliminates the main source of run-to-run variance in extracted facts and relationship triplets.
+- Fixes relationship triplets being anchored to the first memory that mentioned an entity in LLM output order rather than the most authoritative one. If the LLM listed a move-event before the current-city fact, `(user, lives_in, amsterdam)` was anchored to the event memory; hop2 then surfaced the event instead of the stable fact, and the Amsterdam memory remained unreachable. entityMemoryMap now tracks whether each anchor came from a fact/preference or an event/opinion. A fact/preference is allowed to override an event/opinion anchor for the same entity name regardless of output order; an event/opinion cannot override a fact/preference.
+- Adds ingestion timing and recall timing to the fixture test runner. Each fixture logs total ingest time and average per-turn latency after all sessions are submitted; each probe logs its /recall round-trip time alongside the hit count.
+
+Fixture delta vs v1.3.1:
+
+    basic_facts:      3/3 (100%) — unchanged
+    fact_evolution:   1/1 (100%) — unchanged; 1 not-expected violation (Stripe
+                                   in context — bi-temporal history, expected)
+    multi_hop:        1/1 (100%) — unchanged score; retrieval now stable under
+                                   LLM variance (temperature fix + fact-priority
+                                   anchor eliminate the flakiness observed in v1.3.1)
+    noise_resistance: 0 violations — unchanged
+    opinion_arc:      1/1 (100%) — unchanged; 1 not-expected violation
+                                   (game changer — opinion_view not yet
+                                   implemented, expected)
+    OVERALL:          6/6 (100%), 2 not-expected violations
+    JUDGE:            18/20 assertions correct (90%); 2 failures — same as v1.3.1,
+                      both require opinion_view synthesis not yet implemented
+                      ("view has evolved over time", "Luna's location determinable
+                      from home city")
+
+---
+
 ## v1.3.1 — Graph traversal correctness and extraction stability
 
 - Fixes hop1_entities CTE filtering entity_relationships by `m.active = true` on the source memory. When a memory was superseded, its edges disappeared from traversal even though entity relationships are append-only navigation metadata — not versioned facts. Removed the JOIN to memories from hop1_entities; only hop1_memories and hop2_memories, which return actual memory content, retain the `active = true` guard.

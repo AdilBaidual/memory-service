@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -113,7 +114,11 @@ func (c *Client) doExtract(ctx context.Context, req ExtractionRequest) (*Extract
 				Strict: true,
 			},
 		},
-		MaxTokens: 1500,
+		// Temperature field has omitempty — literal 0 would be dropped and the
+		// API would use its default (~1.0). SmallestNonzeroFloat32 is non-zero
+		// so it is sent, but is indistinguishable from 0 for the model.
+		Temperature: math.SmallestNonzeroFloat32,
+		MaxTokens:   1500,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("openai extraction: %w", err)

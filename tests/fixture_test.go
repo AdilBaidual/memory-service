@@ -123,6 +123,8 @@ func TestFixtureQuality(t *testing.T) {
 			}
 
 			// Ingest all conversations
+			ingestStart := time.Now()
+			turnDurations := make([]time.Duration, 0, len(f.Conversations))
 			for _, conv := range f.Conversations {
 				msgs := "["
 				for i, m := range conv.Messages {
@@ -141,12 +143,25 @@ func TestFixtureQuality(t *testing.T) {
 					"metadata": {}
 				}`, conv.SessionID, conv.UserID, msgs, conv.Timestamp.Format(time.RFC3339))
 
+				turnStart := time.Now()
 				resp := postJSON(t, "/turns", body)
+				turnDurations = append(turnDurations, time.Since(turnStart))
 				if resp.StatusCode != 201 {
 					t.Errorf("ingest turn for session %s: got %d", conv.SessionID, resp.StatusCode)
 				}
 				resp.Body.Close()
 			}
+			totalIngest := time.Since(ingestStart)
+			var avgTurn time.Duration
+			if len(turnDurations) > 0 {
+				var sum time.Duration
+				for _, d := range turnDurations {
+					sum += d
+				}
+				avgTurn = sum / time.Duration(len(turnDurations))
+			}
+			t.Logf("  ingest: %d turns in %v (avg %v/turn)",
+				len(f.Conversations), totalIngest.Round(time.Millisecond), avgTurn.Round(time.Millisecond))
 
 			// Run probes
 			fixtureHits, fixtureExpected := 0, 0
@@ -163,7 +178,9 @@ func TestFixtureQuality(t *testing.T) {
 					"max_tokens": %d
 				}`, probe.Query, probe.SessionID, probe.UserID, maxTokens)
 
+				recallStart := time.Now()
 				resp := postJSON(t, "/recall", body)
+				recallDuration := time.Since(recallStart)
 				if resp.StatusCode != 200 {
 					t.Errorf("probe %q: got status %d", probe.Query, resp.StatusCode)
 					resp.Body.Close()
@@ -195,8 +212,8 @@ func TestFixtureQuality(t *testing.T) {
 				fixtureExpected += len(probe.ExpectedFacts)
 				totalNotExpectedFails += violations
 
-				t.Logf("  probe %q: %d/%d hits",
-					probe.Query, hits, len(probe.ExpectedFacts))
+				t.Logf("  probe %q: %d/%d hits, recall %v",
+					probe.Query, hits, len(probe.ExpectedFacts), recallDuration.Round(time.Millisecond))
 				//t.Logf("  recall response:\n%s", recallCtx)
 
 				// LLM judge assertions (only when judge_assertions is populated)

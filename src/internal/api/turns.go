@@ -126,9 +126,14 @@ func NewTurnsHandler(pool *pgxpool.Pool, ext *extraction.Extractor) http.Handler
 		}
 		defer tx2.Rollback(ctx) //nolint:errcheck
 
-		// entityMemoryMap maps lowercase entity name → memory ID so that each
-		// relationship triplet can be anchored to the most specific source memory.
-		entityMemoryMap := make(map[string]uuid.UUID)
+		// entityAnchors tracks the best source memory for each entity name.
+		// Facts and preferences take priority over events and opinions —
+		// LLM output order must not determine which memory anchors a relationship.
+		type entityAnchor struct {
+			memID    uuid.UUID
+			fromFact bool
+		}
+		entityAnchors := make(map[string]entityAnchor)
 
 		inserted := 0
 		var lastMemoryID uuid.UUID
@@ -192,14 +197,24 @@ func NewTurnsHandler(pool *pgxpool.Pool, ext *extraction.Extractor) http.Handler
 			}
 
 			// Register entities so relationships can be anchored to this memory.
+			// Facts/preferences override events/opinions for the same entity name:
+			// the stable, authoritative memory is a stronger graph anchor.
+			fromFact := c.Type == "fact" || c.Type == "preference"
 			for _, ent := range c.Entities {
 				lower := strings.ToLower(strings.TrimSpace(ent))
-				if lower != "" && lower != "user" {
-					if _, exists := entityMemoryMap[lower]; !exists {
-						entityMemoryMap[lower] = memID
-					}
+				if lower == "" || lower == "user" {
+					continue
+				}
+				existing, exists := entityAnchors[lower]
+				if !exists || (!existing.fromFact && fromFact) {
+					entityAnchors[lower] = entityAnchor{memID: memID, fromFact: fromFact}
 				}
 			}
+		}
+
+		entityMemoryMap := make(map[string]uuid.UUID, len(entityAnchors))
+		for k, v := range entityAnchors {
+			entityMemoryMap[k] = v.memID
 		}
 
 		// Process relationship triplets after all memories are saved.

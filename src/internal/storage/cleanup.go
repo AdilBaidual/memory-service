@@ -11,6 +11,26 @@ import (
 // Returns counts of deleted memories and turns. Idempotent.
 // Must be called within a transaction (caller manages commit/rollback).
 func DeleteSessionData(ctx context.Context, q Querier, sessionID string) (memoriesDeleted, turnsDeleted int64, err error) {
+	// Decrement entity mention counts before memories are removed.
+	// entity_mentions cascade-deletes automatically with memories, so we must
+	// compute the per-entity loss while the rows are still present.
+	_, err = q.Exec(ctx, `
+		UPDATE entities e
+		SET mention_count = GREATEST(0, e.mention_count - subq.cnt)
+		FROM (
+			SELECT em.entity_name, em.user_id, COUNT(*) AS cnt
+			FROM entity_mentions em
+			JOIN memories m ON m.id = em.memory_id
+			WHERE m.source_session = $1
+			GROUP BY em.entity_name, em.user_id
+		) subq
+		WHERE e.name    = subq.entity_name
+		  AND e.user_id = subq.user_id
+	`, sessionID)
+	if err != nil {
+		return 0, 0, fmt.Errorf("decrement entity mention counts: %w", err)
+	}
+
 	tag, err := q.Exec(ctx, "DELETE FROM memories WHERE source_session = $1", sessionID)
 	if err != nil {
 		return 0, 0, fmt.Errorf("delete memories by session: %w", err)

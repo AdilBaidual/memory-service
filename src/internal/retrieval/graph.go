@@ -35,12 +35,25 @@ func graphSearch(
 	const sql = `
 		WITH
 		hop1_memories AS (
-			SELECT DISTINCT m.id, 1.0::float4 AS hop_score
+			-- Score = 1.0 × entity_importance_multiplier, where the multiplier is
+			-- a log-scaled function of mention_count capped at 2×.
+			-- Entities mentioned often are a stronger signal than one-off names.
+			SELECT m.id,
+				MAX(
+					1.0::float4
+					* LEAST(
+						1.0 + LN(GREATEST(COALESCE(e.mention_count, 1)::float4, 1.0)) * 0.1,
+						2.0
+					)::float4
+				) AS hop_score
 			FROM entity_mentions em
-			JOIN memories m ON m.id = em.memory_id
+			JOIN memories m   ON m.id      = em.memory_id
+			LEFT JOIN entities e ON e.name     = em.entity_name
+			                    AND e.user_id  = em.user_id
 			WHERE em.user_id     = $1
 			  AND m.active       = true
 			  AND em.entity_name = ANY($2::text[])
+			GROUP BY m.id
 		),
 		hop1_entities AS (
 			-- Relationships are append-only navigation metadata.
@@ -59,6 +72,9 @@ func graphSearch(
 			  AND er.object_entity = ANY($2::text[])
 		),
 		hop2_memories AS (
+			-- Flat 0.5: boosting by the traversal-neighbor entity's mention_count
+			-- would amplify "user" (which appears in nearly every relationship),
+			-- inflating scores for unrelated memories. Boost is applied at hop1 only.
 			SELECT DISTINCT m.id, 0.5::float4 AS hop_score
 			FROM entity_mentions em
 			JOIN memories m    ON m.id   = em.memory_id
