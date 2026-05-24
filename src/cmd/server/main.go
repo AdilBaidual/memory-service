@@ -72,19 +72,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Service layer.
 	ext := extraction.New(llmClient)
 	ret := retrieval.NewHybridRetriever(pool, llmClient)
 	cons := consolidation.NewConsolidator()
 	relProc := relationships.NewProcessor()
 
-	// Usecase layer.
 	turnsUC := usecase.NewIngestTurnUsecase(pool, ext, cons, relProc)
 	recallUC := usecase.NewRecallUsecase(ret)
 	searchUC := usecase.NewSearchUsecase(ret)
-	memoriesUC := usecase.NewListMemoriesUsecase(pool)
-	deleteSessionUC := usecase.NewDeleteSessionUsecase(pool)
-	deleteUserUC := usecase.NewDeleteUserUsecase(pool)
+	memoriesUC := usecase.NewListMemoriesUsecase(store.NewPoolMemoryLister(pool))
+	deleteSessionUC := usecase.NewDeleteSessionUsecase(store.NewPoolSessionDeleter(pool))
+	deleteUserUC := usecase.NewDeleteUserUsecase(store.NewPoolUserDeleter(pool))
 
 	handler := handlers.NewHandler(pool, turnsUC, recallUC, searchUC, memoriesUC, deleteSessionUC, deleteUserUC).Routes()
 

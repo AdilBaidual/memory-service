@@ -11,19 +11,15 @@ import (
 	"memory-service/internal/adapters/llm"
 )
 
-// Extractor orchestrates LLM-based memory extraction.
 type Extractor struct {
 	client *llm.Client
 }
 
-// New creates an Extractor backed by the given LLM client.
 func New(client *llm.Client) *Extractor {
 	return &Extractor{client: client}
 }
 
-// Extract runs LLM extraction on the pre-formatted conversation and returns memory candidates
-// and relationship triplets.
-// Returns nil, nil, nil when the LLM client is not configured — callers should
+// Extract returns nil, nil, nil when the LLM client is not configured — callers should
 // treat this as graceful degradation (turn saved, no memories extracted).
 func (e *Extractor) Extract(
 	ctx context.Context,
@@ -77,8 +73,7 @@ func (e *Extractor) Extract(
 	return candidates, result.Relationships, nil
 }
 
-// Embed embeds a single text using the underlying LLM client.
-// Returns nil, nil when the client is not configured.
+// Embed returns nil, nil when the client is not configured.
 func (e *Extractor) Embed(ctx context.Context, text string) ([]float32, error) {
 	if e.client == nil {
 		return nil, nil
@@ -104,7 +99,6 @@ func FormatConversation(messages []Message) string {
 	return sb.String()
 }
 
-// computeConfidence returns a confidence score based on the evidence type.
 // Confidence is computed by the system; it is never requested from the LLM.
 func computeConfidence(evidence string) float32 {
 	switch evidence {
@@ -117,7 +111,6 @@ func computeConfidence(evidence string) float32 {
 	}
 }
 
-// normalizeType coerces the LLM-returned type to one of the valid enum values.
 // Falls back to "fact" on anything unexpected.
 func normalizeType(s string) string {
 	lower := strings.ToLower(strings.TrimSpace(s))
@@ -128,7 +121,6 @@ func normalizeType(s string) string {
 	return "fact"
 }
 
-// normalizeEvidence coerces the LLM-returned evidence to "explicit" or "implicit".
 // If the raw value contains either keyword it is recovered; otherwise defaults to "implicit".
 func normalizeEvidence(s string) string {
 	lower := strings.ToLower(strings.TrimSpace(s))

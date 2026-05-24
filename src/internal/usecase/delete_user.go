@@ -4,36 +4,24 @@ package usecase
 import (
 	"context"
 	"fmt"
-
-	"github.com/jackc/pgx/v5/pgxpool"
-
-	"memory-service/internal/adapters/store"
 )
 
-// DeleteUserUsecase handles user deletion.
+// UserDeleter abstracts the storage layer for deleting a user and all their data.
+type UserDeleter interface {
+	DeleteUser(ctx context.Context, userID string) error
+}
+
 type DeleteUserUsecase struct {
-	pool *pgxpool.Pool
+	deleter UserDeleter
 }
 
-func NewDeleteUserUsecase(pool *pgxpool.Pool) *DeleteUserUsecase {
-	return &DeleteUserUsecase{pool: pool}
+func NewDeleteUserUsecase(d UserDeleter) *DeleteUserUsecase {
+	return &DeleteUserUsecase{deleter: d}
 }
 
-// Delete removes all data for a user across all tables.
 func (uc *DeleteUserUsecase) Delete(ctx context.Context, userID string) error {
-	tx, err := uc.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin transaction: %w", err)
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
-
-	if err := store.DeleteAllUserData(ctx, tx, userID); err != nil {
+	if err := uc.deleter.DeleteUser(ctx, userID); err != nil {
 		return fmt.Errorf("delete user: %w", err)
 	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit transaction: %w", err)
-	}
-
 	return nil
 }

@@ -11,7 +11,6 @@ import (
 
 const rrfK = 60
 
-// RRFInput is one ranked list of scored memories from a retrieval channel.
 type RRFInput struct {
 	Memories []store.ScoredMemory
 }

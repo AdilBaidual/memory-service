@@ -7,7 +7,6 @@ import (
 	"strconv"
 )
 
-// Config holds all configuration values for the service.
 type Config struct {
 	Port     string
 	LogLevel string
@@ -74,7 +73,6 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
-// DatabaseURL builds the postgres connection string from config fields.
 func (c *Config) DatabaseURL() string {
 	return fmt.Sprintf(
 		"postgres://%s:%s@%s:%s/%s?sslmode=disable",

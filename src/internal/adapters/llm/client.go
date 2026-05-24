@@ -20,8 +20,7 @@ type Client struct {
 	cfg    *config.Config
 }
 
-// NewClient creates a Client from config.
-// Returns nil when OPENAI_API_KEY is not set.
+// NewClient returns nil when OPENAI_API_KEY is not set.
 func NewClient(cfg *config.Config) *Client {
 	if cfg.OpenAIAPIKey == "" {
 		return nil
@@ -70,6 +69,5 @@ func isRetryable(err error) bool {
 			return false
 		}
 	}
-	// Non-API errors (network errors) are retryable.
 	return true
 }

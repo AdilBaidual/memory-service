@@ -9,19 +9,16 @@ import (
 	"memory-service/internal/service/retrieval"
 )
 
-// Retriever retrieves memories relevant to a query for a given user.
 type Retriever interface {
 	Retrieve(ctx context.Context, params retrieval.RetrieveParams) ([]retrieval.RetrievedMemory, error)
 }
 
-// Citation references a source turn that contributed to a recall response.
 type Citation struct {
 	TurnID  string
 	Score   float32
 	Snippet string
 }
 
-// RecallInput carries the parameters for a recall operation.
 type RecallInput struct {
 	Query     string
 	UserID    *string
@@ -29,13 +26,11 @@ type RecallInput struct {
 	MaxTokens int
 }
 
-// RecallOutput carries the result of a recall operation.
 type RecallOutput struct {
 	Context   string
 	Citations []Citation
 }
 
-// RecallUsecase retrieves context for an agent's next turn.
 type RecallUsecase struct {
 	retriever Retriever
 }
@@ -45,8 +40,7 @@ func NewRecallUsecase(retriever Retriever) *RecallUsecase {
 	return &RecallUsecase{retriever: retriever}
 }
 
-// Recall retrieves relevant memories and assembles a context string and citations.
-// Errors degrade gracefully to empty context.
+// Recall retrieves relevant memories and assembles context. Errors degrade gracefully to empty context.
 func (uc *RecallUsecase) Recall(ctx context.Context, in RecallInput) RecallOutput {
 	empty := RecallOutput{Context: "", Citations: []Citation{}}
 

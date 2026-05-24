@@ -5,34 +5,33 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"memory-service/internal/adapters/store"
 )
 
-// MemoriesInput carries the parameters for listing memories.
+// MemoryLister abstracts the storage layer for listing memories.
+type MemoryLister interface {
+	ListMemoriesByUser(ctx context.Context, userID string, f store.ListMemoriesFilters) ([]store.Memory, error)
+}
+
 type MemoriesInput struct {
 	UserID  string
 	Filters store.ListMemoriesFilters
 }
 
-// MemoriesOutput carries the list of memories.
 type MemoriesOutput struct {
 	Memories []store.Memory
 }
 
-// ListMemoriesUsecase handles listing memories for a user.
 type ListMemoriesUsecase struct {
-	pool *pgxpool.Pool
+	lister MemoryLister
 }
 
-func NewListMemoriesUsecase(pool *pgxpool.Pool) *ListMemoriesUsecase {
-	return &ListMemoriesUsecase{pool: pool}
+func NewListMemoriesUsecase(l MemoryLister) *ListMemoriesUsecase {
+	return &ListMemoriesUsecase{lister: l}
 }
 
-// List returns memories for the specified user.
 func (uc *ListMemoriesUsecase) List(ctx context.Context, in MemoriesInput) (MemoriesOutput, error) {
-	mems, err := store.ListMemoriesByUser(ctx, uc.pool, in.UserID, in.Filters)
+	mems, err := uc.lister.ListMemoriesByUser(ctx, in.UserID, in.Filters)
 	if err != nil {
 		return MemoriesOutput{}, fmt.Errorf("list memories: %w", err)
 	}

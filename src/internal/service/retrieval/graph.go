@@ -119,7 +119,6 @@ func graphSearch(
 	return results, rows.Err()
 }
 
-// extractQueryEntities extracts candidate entity names from a query.
 // Takes capitalized words that are not common stop words.
 // v1: simple heuristic. v2: proper NER.
 func extractQueryEntities(query string) []string {

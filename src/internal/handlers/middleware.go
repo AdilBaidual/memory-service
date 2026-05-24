@@ -11,8 +11,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-// apiError carries an HTTP status code and message.
-// Implements the error interface so it can be returned from parseRequest helpers.
+// apiError carries an HTTP status code and message so it can be returned from parseRequest helpers.
 type apiError struct {
 	status int
 	msg    string
@@ -45,7 +44,6 @@ func (rw *responseWriter) WriteHeader(code int) {
 	rw.ResponseWriter.WriteHeader(code)
 }
 
-// RecoverMiddleware recovers from panics, logs the stack trace, and returns 500.
 func RecoverMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {

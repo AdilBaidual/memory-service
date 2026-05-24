@@ -10,14 +10,12 @@ import (
 	"memory-service/internal/service/retrieval"
 )
 
-// SearchInput carries the parameters for a search operation.
 type SearchInput struct {
 	Query  string
 	UserID *string
 	Limit  int
 }
 
-// SearchResultItem is a single result in a search response.
 type SearchResultItem struct {
 	Content   string
 	Score     float32
@@ -26,12 +24,10 @@ type SearchResultItem struct {
 	Metadata  json.RawMessage
 }
 
-// SearchOutput carries the results of a search operation.
 type SearchOutput struct {
 	Results []SearchResultItem
 }
 
-// SearchUsecase handles memory search operations.
 type SearchUsecase struct {
 	retriever Retriever
 }
@@ -41,8 +37,7 @@ func NewSearchUsecase(retriever Retriever) *SearchUsecase {
 	return &SearchUsecase{retriever: retriever}
 }
 
-// Search retrieves memories matching the query.
-// Errors degrade gracefully to empty results.
+// Search retrieves memories matching the query. Errors degrade gracefully to empty results.
 func (uc *SearchUsecase) Search(ctx context.Context, in SearchInput) SearchOutput {
 	empty := SearchOutput{Results: []SearchResultItem{}}
 

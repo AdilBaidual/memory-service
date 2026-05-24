@@ -12,7 +12,6 @@ import (
 	"memory-service/internal/adapters/store"
 )
 
-// candidatesPerChannel is how many results each channel fetches before fusion.
 const candidatesPerChannel = 30
 
 // HybridRetriever runs semantic (cosine), keyword (FTS), and graph channels
@@ -22,7 +21,6 @@ type HybridRetriever struct {
 	client *llm.Client
 }
 
-// NewHybridRetriever creates a HybridRetriever.
 func NewHybridRetriever(pool store.Querier, client *llm.Client) *HybridRetriever {
 	return &HybridRetriever{pool: pool, client: client}
 }

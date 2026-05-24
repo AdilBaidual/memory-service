@@ -12,7 +12,6 @@ import (
 	"memory-service/internal/adapters/store"
 )
 
-// ProcessRelationships persists entity triplets from a turn.
 // entityMemoryMap maps lowercase entity names to their source memory IDs,
 // allowing each relationship to be anchored to the most specific memory.
 // The fallback ID is used when neither subject nor object appears in the map.

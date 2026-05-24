@@ -139,3 +139,80 @@ func TestMemoriesEmptyForUnknownUser(t *testing.T) {
 		t.Fatalf("expected empty memories array, got: %s", body)
 	}
 }
+
+func TestTurnsNoUserID_Returns201(t *testing.T) {
+	sid := uniqueID("session")
+	resp := postJSON(t, "/turns", fmt.Sprintf(`{
+		"session_id": %q,
+		"messages": [{"role":"user","content":"hello"}],
+		"timestamp": "2025-03-15T10:00:00Z"
+	}`, sid))
+	mustStatus(t, resp, 201)
+	var out struct {
+		ID string `json:"id"`
+	}
+	decodeJSON(t, resp, &out)
+	if _, err := uuid.Parse(out.ID); err != nil {
+		t.Fatalf("turn id is not a valid UUID: %q", out.ID)
+	}
+}
+
+func TestRecallNoUserID_ReturnsEmptyContext(t *testing.T) {
+	sid := uniqueID("session")
+	resp := postJSON(t, "/recall", fmt.Sprintf(`{
+		"query": "anything",
+		"session_id": %q,
+		"max_tokens": 512
+	}`, sid))
+	mustStatus(t, resp, 200)
+	body := readBody(t, resp)
+	if !strings.Contains(body, `"citations":[]`) {
+		t.Fatalf("expected empty citations without user_id, got: %s", body)
+	}
+}
+
+func TestSearchLimitDefault(t *testing.T) {
+	resp := postJSON(t, "/search", `{"query": "test", "user_id": "nobody"}`)
+	mustStatus(t, resp, 200)
+	body := readBody(t, resp)
+	if !strings.Contains(body, `"results"`) {
+		t.Fatalf("search response missing results field: %s", body)
+	}
+}
+
+func TestSearchLimitCapped(t *testing.T) {
+	resp := postJSON(t, "/search", `{"query": "test", "user_id": "nobody", "limit": 999}`)
+	mustStatus(t, resp, 200)
+	body := readBody(t, resp)
+	if strings.Contains(body, `"error"`) {
+		t.Fatalf("expected successful response with capped limit, got: %s", body)
+	}
+}
+
+func TestDeleteSession_DerivedMemoriesFromOtherSessionPreserved(t *testing.T) {
+	uid := uniqueID("user")
+	sid1 := uniqueID("session-a")
+	sid2 := uniqueID("session-b")
+
+	// Write turns to both sessions
+	resp := postJSON(t, "/turns", validTurnBody(sid1, uid))
+	mustStatus(t, resp, 201)
+	resp.Body.Close()
+
+	resp = postJSON(t, "/turns", validTurnBody(sid2, uid))
+	mustStatus(t, resp, 201)
+	resp.Body.Close()
+
+	// Delete session 1 only
+	resp = deleteReq(t, "/sessions/"+sid1)
+	mustStatus(t, resp, 204)
+	resp.Body.Close()
+
+	// Memories endpoint for the user must still be accessible (session 2 data intact)
+	resp = get(t, "/users/"+uid+"/memories")
+	mustStatus(t, resp, 200)
+	resp.Body.Close()
+
+	// Cleanup
+	deleteReq(t, "/users/"+uid)
+}

@@ -22,7 +22,6 @@ const (
 	ResultUPDATE               // contradicting fact superseded, new inserted
 )
 
-// String returns a human-readable label for the result.
 func (r Result) String() string {
 	switch r {
 	case ResultADD:
@@ -38,10 +37,7 @@ func (r Result) String() string {
 
 // ConsolidateFact applies ADD / NOOP / UPDATE logic for a single memory candidate.
 // Must be called inside a transaction (q is a pgx.Tx satisfying store.Querier).
-//
 // When key is nil (events, keyless items): always ADD — nothing to consolidate against.
-//
-// Returns the ID of the inserted/existing memory and the result type.
 func ConsolidateFact(
 	ctx context.Context,
 	q store.Querier,
@@ -91,7 +87,6 @@ func ConsolidateFact(
 	return id, ResultUPDATE, err
 }
 
-// normalizeValue lowercases and trims whitespace for comparison.
 func normalizeValue(s string) string {
 	return strings.TrimSpace(strings.ToLower(s))
 }

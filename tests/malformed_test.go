@@ -100,3 +100,42 @@ func TestMalformed_SearchMissingQuery(t *testing.T) {
 	resp := postJSON(t, "/search", `{"limit": 5}`)
 	mustStatus(t, resp, 400)
 }
+
+func TestMalformed_TurnsInvalidRole(t *testing.T) {
+	resp := postJSON(t, "/turns", `{
+		"session_id": "s1",
+		"user_id": "u1",
+		"messages": [{"role":"god","content":"hello"}],
+		"timestamp": "2025-03-15T10:00:00Z"
+	}`)
+	mustStatus(t, resp, 400)
+}
+
+func TestMalformed_TurnsEmptyContent(t *testing.T) {
+	resp := postJSON(t, "/turns", `{
+		"session_id": "s1",
+		"user_id": "u1",
+		"messages": [{"role":"user","content":""}],
+		"timestamp": "2025-03-15T10:00:00Z"
+	}`)
+	mustStatus(t, resp, 400)
+}
+
+func TestMalformed_RecallMissingSessionID(t *testing.T) {
+	resp := postJSON(t, "/recall", `{
+		"query": "test",
+		"user_id": "u1",
+		"max_tokens": 512
+	}`)
+	mustStatus(t, resp, 400)
+}
+
+func TestMalformed_MemoriesInvalidActive(t *testing.T) {
+	resp := get(t, "/users/u1/memories?active=maybe")
+	mustStatus(t, resp, 400)
+}
+
+func TestMalformed_MemoriesInvalidLimit(t *testing.T) {
+	resp := get(t, "/users/u1/memories?limit=notanumber")
+	mustStatus(t, resp, 400)
+}

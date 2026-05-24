@@ -2,12 +2,12 @@
 // from raw conversation turns.
 package extraction
 
-// Candidate is a memory candidate produced by extraction.
 type Candidate struct {
 	Type       string  // "fact" | "preference" | "opinion" | "event"
 	Key        *string // nil for events and keyless items
 	Value      string
-	Evidence   string   // "explicit" | "implicit"
+	// Evidence is "explicit" (user stated directly) or "implicit" (inferred).
+	Evidence   string
 	Entities   []string
 	Confidence float32
 }
@@ -20,14 +20,12 @@ type ExtractionInput struct {
 	ExistingOpinionTopics []string
 }
 
-// KeyValue is a key-value pair of an existing memory hint.
 // Local type — callers do not need to import adapters/llm.
 type KeyValue struct {
 	Key   string
 	Value string
 }
 
-// Message is a single turn message used for conversation formatting.
 type Message struct {
 	Role    string
 	Content string

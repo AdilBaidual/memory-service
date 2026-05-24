@@ -31,8 +31,7 @@ type llmRelationship struct {
 	Object    string `json:"object"`
 }
 
-// Extract calls gpt-4o-mini with Structured Output to extract candidate
-// memories from a conversation turn. Returns an error if the client is nil.
+// Extract calls gpt-4o-mini with Structured Output to extract candidate memories from a conversation turn.
 func (c *Client) Extract(ctx context.Context, req ExtractionRequest) (*ExtractionResult, error) {
 	if c == nil {
 		return nil, fmt.Errorf("llm client not configured: OPENAI_API_KEY is not set")

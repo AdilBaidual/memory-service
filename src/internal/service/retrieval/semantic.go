@@ -9,18 +9,15 @@ import (
 	"memory-service/internal/adapters/store"
 )
 
-// SemanticRetriever retrieves memories using cosine similarity on OpenAI embeddings.
 type SemanticRetriever struct {
 	pool   store.Querier
 	client *llm.Client
 }
 
-// NewSemanticRetriever creates a SemanticRetriever.
 func NewSemanticRetriever(pool store.Querier, client *llm.Client) *SemanticRetriever {
 	return &SemanticRetriever{pool: pool, client: client}
 }
 
-// Retrieve embeds the query and returns the top-k nearest active memories by cosine distance.
 func (r *SemanticRetriever) Retrieve(ctx context.Context, params RetrieveParams) ([]RetrievedMemory, error) {
 	if r.client == nil {
 		return nil, nil

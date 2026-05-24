@@ -7,7 +7,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// UpsertEntity ensures the entity exists for the given user.
 // Increments mention_count on conflict.
 func UpsertEntity(ctx context.Context, q Querier,
 	name, userID, entityType string) error {
@@ -28,7 +27,6 @@ func UpsertEntity(ctx context.Context, q Querier,
 	return nil
 }
 
-// InsertEntityMention links a memory to an entity.
 // Idempotent via ON CONFLICT DO NOTHING.
 func InsertEntityMention(ctx context.Context, q Querier,
 	memoryID uuid.UUID, entityName, userID, role string) error {
@@ -45,7 +43,6 @@ func InsertEntityMention(ctx context.Context, q Querier,
 	return nil
 }
 
-// InsertRelationship appends a relationship triplet.
 // entity_relationships is append-only.
 func InsertRelationship(ctx context.Context, q Querier,
 	userID, subject, predicate, object string,

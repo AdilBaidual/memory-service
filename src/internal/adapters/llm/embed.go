@@ -7,8 +7,7 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
-// Embed returns a 1536-dimensional vector for the given text using
-// text-embedding-3-small. Returns an error if the client is nil.
+// Embed returns a 1536-dimensional vector for the given text using text-embedding-3-small.
 func (c *Client) Embed(ctx context.Context, text string) ([]float32, error) {
 	if c == nil {
 		return nil, fmt.Errorf("llm client not configured: OPENAI_API_KEY is not set")
