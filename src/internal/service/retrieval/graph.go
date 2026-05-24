@@ -71,14 +71,31 @@ func graphSearch(
 			WHERE er.user_id       = $1
 			  AND er.object_entity = ANY($2::text[])
 		),
+		hop2_entities AS (
+			-- Traverse entity_relationships from hop1_entities to discover named
+			-- entities two hops away. Excludes query_entities to avoid backtracking
+			-- (e.g. if hop1_entities={user} and query_entities=[luna], this yields
+			-- {amsterdam, rotterdam, herbert} — not luna again).
+			SELECT DISTINCT er.object_entity AS name
+			FROM entity_relationships er
+			JOIN hop1_entities he ON he.name = er.subject_entity
+			WHERE er.user_id = $1
+			  AND er.object_entity != ALL($2::text[])
+			UNION
+			SELECT DISTINCT er.subject_entity
+			FROM entity_relationships er
+			JOIN hop1_entities he ON he.name = er.object_entity
+			WHERE er.user_id = $1
+			  AND er.subject_entity != ALL($2::text[])
+		),
 		hop2_memories AS (
 			-- Flat 0.5: boosting by the traversal-neighbor entity's mention_count
 			-- would amplify "user" (which appears in nearly every relationship),
 			-- inflating scores for unrelated memories. Boost is applied at hop1 only.
 			SELECT DISTINCT m.id, 0.5::float4 AS hop_score
 			FROM entity_mentions em
-			JOIN memories m    ON m.id   = em.memory_id
-			JOIN hop1_entities he ON he.name = em.entity_name
+			JOIN memories m       ON m.id    = em.memory_id
+			JOIN hop2_entities h2 ON h2.name = em.entity_name
 			WHERE em.user_id = $1
 			  AND m.active   = true
 		),

@@ -157,6 +157,26 @@ func (uc *IngestTurnUsecase) persistMemories(
 				entityAnchors[lower] = entityAnchor{memID: memID, fromFact: fromFact}
 			}
 		}
+
+		// Insert entity_mentions for each entity so the graph channel can find
+		// this memory directly, independent of relationship anchor resolution.
+		if memID != uuid.Nil {
+			for _, ent := range c.Entities {
+				lower := strings.ToLower(strings.TrimSpace(ent))
+				if lower == "" || lower == "user" {
+					continue
+				}
+				if err := store.UpsertEntity(ctx, tx2, lower, *in.UserID, ""); err != nil {
+					slog.Warn("upsert entity for mention failed",
+						"entity", lower, "err", err, "user_id", *in.UserID)
+					continue
+				}
+				if err := store.InsertEntityMention(ctx, tx2, memID, lower, *in.UserID, "entity"); err != nil {
+					slog.Warn("insert entity mention failed",
+						"entity", lower, "memory_id", memID, "err", err, "user_id", *in.UserID)
+				}
+			}
+		}
 	}
 
 	entityMemoryMap := make(map[string]uuid.UUID, len(entityAnchors))

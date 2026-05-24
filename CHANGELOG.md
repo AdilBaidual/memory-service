@@ -5,6 +5,30 @@ Entries are in reverse chronological order.
 
 ---
 
+## v1.5.0 — Temporal recency boost and Cohere reranker
+
+- Adds temporal recency boost after RRF fusion. Memory scores are multiplied by `α + (1-α) × exp(-λ × days_since_update)` with λ=0.005 (half-life ~139 days) and α=0.7. Conservative decay preserves stable facts; recency contributes at most 30% of the final score so semantic relevance still dominates.
+- Adds Cohere cross-encoder reranker as an optional final step. Top-30 RRF+temporal candidates are re-scored by `rerank-english-v3.0`, which evaluates full (query, document) pairs rather than independent embeddings. Enabled via `COHERE_API_KEY`; absent key or API error falls back to temporal-boosted RRF order unchanged.
+- Pipeline order: semantic + FTS + graph (parallel) → RRF → temporal boost → Cohere rerank → top-k.
+
+Fixture delta vs v1.4.0:
+
+    basic_facts:      3/3 (100%) — unchanged
+    fact_evolution:   1/1 (100%) — unchanged; 1 not-expected violation (Stripe
+                                   in context — bi-temporal history, expected)
+    multi_hop:        1/1 (100%) — unchanged
+    noise_resistance: 0 violations — unchanged
+    opinion_arc:      1/1 (100%) — unchanged; 1 not-expected violation
+                                   (game changer — opinion_view not yet
+                                   implemented, expected)
+    OVERALL:          6/6 (100%), 2 not-expected violations
+    JUDGE:            18/20 assertions correct (90%); 2 failures — same as
+                      v1.4.0; both require opinion_view synthesis not yet
+                      implemented ("view has evolved over time",
+                      "Luna's location determinable from home city")
+
+---
+
 ## v1.4.0 — Layered Go architecture
 
 - Reorganises `src/internal/` into four explicit layers: `adapters/` (OpenAI client, PostgreSQL CRUD), `service/` (extraction, consolidation, relationships, retrieval), `usecase/` (per-endpoint pipelines with transaction management), `handlers/` (HTTP parsing and response serialisation only). Each layer depends only on layers below it via interfaces defined at the consumer, not the implementer.

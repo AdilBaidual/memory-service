@@ -41,11 +41,12 @@ func main() {
 			"note", "POST /turns will save turns without extraction; /recall will return empty context")
 	}
 
-	if cfg.CohereAPIKey != "" {
-		slog.Info("reranker configured", "provider", "cohere", "model", cfg.CohereRerankModel)
+	cohereClient := llm.NewCohereClient(cfg.CohereAPIKey, cfg.CohereRerankModel)
+	if cohereClient == nil {
+		slog.Warn("cohere client not configured",
+			"note", "retrieval will use RRF scores without reranking")
 	} else {
-		slog.Warn("reranker not configured",
-			"note", "set COHERE_API_KEY to enable cross-encoder reranking; /recall will use RRF-only ranking until configured")
+		slog.Info("cohere reranker configured", "model", cfg.CohereRerankModel)
 	}
 
 	ctx := context.Background()
@@ -73,7 +74,7 @@ func main() {
 	}
 
 	ext := extraction.New(llmClient)
-	ret := retrieval.NewHybridRetriever(pool, llmClient)
+	ret := retrieval.NewHybridRetriever(pool, llmClient, cohereClient)
 	cons := consolidation.NewConsolidator()
 	relProc := relationships.NewProcessor()
 
