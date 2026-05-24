@@ -13,8 +13,8 @@ import (
 
 	"memory-service/internal/adapters/llm"
 	"memory-service/internal/adapters/store"
-	"memory-service/internal/api"
 	"memory-service/internal/config"
+	"memory-service/internal/handlers"
 	"memory-service/internal/service/consolidation"
 	"memory-service/internal/service/extraction"
 	"memory-service/internal/service/relationships"
@@ -86,7 +86,7 @@ func main() {
 	deleteSessionUC := usecase.NewDeleteSessionUsecase(pool)
 	deleteUserUC := usecase.NewDeleteUserUsecase(pool)
 
-	handler := api.NewRouter(pool, cfg, turnsUC, recallUC, searchUC, memoriesUC, deleteSessionUC, deleteUserUC)
+	handler := handlers.NewHandler(pool, turnsUC, recallUC, searchUC, memoriesUC, deleteSessionUC, deleteUserUC).Routes()
 
 	addr := fmt.Sprintf(":%s", cfg.Port)
 	server := &http.Server{

@@ -1,4 +1,4 @@
-package api
+package handlers
 
 import (
 	"context"
@@ -9,30 +9,27 @@ import (
 	"memory-service/internal/usecase"
 )
 
-// NewRecallHandler handles POST /recall.
-func NewRecallHandler(uc *usecase.RecallUsecase) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-		defer cancel()
+func (h *Handler) handleRecall(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
 
-		req, err := parseRecallRequest(r)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-
-		out := uc.Recall(ctx, usecase.RecallInput{
-			Query:     req.Query,
-			UserID:    req.UserID,
-			SessionID: req.SessionID,
-			MaxTokens: req.MaxTokens,
-		})
-
-		writeJSON(w, http.StatusOK, RecallResponse{
-			Context:   out.Context,
-			Citations: toAPICitations(out.Citations),
-		})
+	req, err := parseRecallRequest(r)
+	if err != nil {
+		writeError(w, err)
+		return
 	}
+
+	out := h.recall.Recall(ctx, usecase.RecallInput{
+		Query:     req.Query,
+		UserID:    req.UserID,
+		SessionID: req.SessionID,
+		MaxTokens: req.MaxTokens,
+	})
+
+	writeJSON(w, http.StatusOK, RecallResponse{
+		Context:   out.Context,
+		Citations: toAPICitations(out.Citations),
+	})
 }
 
 func parseRecallRequest(r *http.Request) (*RecallRequest, error) {

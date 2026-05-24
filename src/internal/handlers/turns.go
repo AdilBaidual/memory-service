@@ -1,4 +1,4 @@
-package api
+package handlers
 
 import (
 	"context"
@@ -11,34 +11,31 @@ import (
 	"memory-service/internal/usecase"
 )
 
-// NewTurnsHandler handles POST /turns.
-func NewTurnsHandler(uc *usecase.IngestTurnUsecase) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
-		defer cancel()
+func (h *Handler) handleTurns(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
+	defer cancel()
 
-		req, err := parseTurnRequest(r)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-
-		sanitizeTurnMessages(req.Messages)
-
-		out, err := uc.Ingest(ctx, usecase.TurnInput{
-			SessionID: req.SessionID,
-			UserID:    req.UserID,
-			Messages:  toUsecaseMessages(req.Messages),
-			Timestamp: req.Timestamp,
-			Metadata:  req.Metadata,
-		})
-		if err != nil {
-			writeError(w, fmt.Errorf("ingest turn: %w", err))
-			return
-		}
-
-		writeJSON(w, http.StatusCreated, buildTurnResponse(out.ID))
+	req, err := parseTurnRequest(r)
+	if err != nil {
+		writeError(w, err)
+		return
 	}
+
+	sanitizeTurnMessages(req.Messages)
+
+	out, err := h.turns.Ingest(ctx, usecase.TurnInput{
+		SessionID: req.SessionID,
+		UserID:    req.UserID,
+		Messages:  toUsecaseMessages(req.Messages),
+		Timestamp: req.Timestamp,
+		Metadata:  req.Metadata,
+	})
+	if err != nil {
+		writeError(w, fmt.Errorf("ingest turn: %w", err))
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, buildTurnResponse(out.ID))
 }
 
 func parseTurnRequest(r *http.Request) (*TurnRequest, error) {

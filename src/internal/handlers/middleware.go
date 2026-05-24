@@ -1,4 +1,4 @@
-package api
+package handlers
 
 import (
 	"encoding/json"
@@ -20,8 +20,8 @@ type apiError struct {
 
 func (e *apiError) Error() string { return e.msg }
 
-// writeError writes an error response, extracting the status code from apiError
-// when available and falling back to 500 for unexpected errors.
+// writeError extracts the status code from apiError when present,
+// falling back to 500 for unexpected errors.
 func writeError(w http.ResponseWriter, err error) {
 	var ae *apiError
 	if errors.As(err, &ae) {
@@ -31,7 +31,6 @@ func writeError(w http.ResponseWriter, err error) {
 	writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: "internal error"})
 }
 
-// responseWriter wraps http.ResponseWriter to capture the status code.
 type responseWriter struct {
 	http.ResponseWriter
 	status int
@@ -66,7 +65,6 @@ func RecoverMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// RequestLogger logs each request after the handler returns.
 func RequestLogger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -88,14 +86,13 @@ func BodySizeLimiter(n int64) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if n > 0 {
-				r.Body = http.MaxBytesReader(w, r.Body, n) // TODO: подумать насколько по тз и как отвечать на большие запросы
+				r.Body = http.MaxBytesReader(w, r.Body, n)
 			}
 			next.ServeHTTP(w, r)
 		})
 	}
 }
 
-// writeJSON writes a JSON-encoded body with the given status code.
 func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

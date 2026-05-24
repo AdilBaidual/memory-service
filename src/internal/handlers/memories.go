@@ -1,10 +1,9 @@
-package api
+package handlers
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -16,33 +15,29 @@ import (
 	"memory-service/internal/usecase"
 )
 
-// NewListUserMemoriesHandler handles GET /users/{user_id}/memories.
-func NewListUserMemoriesHandler(uc *usecase.ListMemoriesUsecase) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-		defer cancel()
+func (h *Handler) handleListMemories(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
 
-		req, err := parseMemoriesRequest(r)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-
-		out, err := uc.List(ctx, usecase.MemoriesInput{
-			UserID:  req.UserID,
-			Filters: req.Filters,
-		})
-		if err != nil {
-			slog.Error("list memories", "error", err, "user_id", req.UserID)
-			writeError(w, fmt.Errorf("list memories: %w", err))
-			return
-		}
-
-		writeJSON(w, http.StatusOK, buildMemoriesResponse(out.Memories))
+	req, err := parseMemoriesRequest(r)
+	if err != nil {
+		writeError(w, err)
+		return
 	}
+
+	out, err := h.memories.List(ctx, usecase.MemoriesInput{
+		UserID:  req.UserID,
+		Filters: req.Filters,
+	})
+	if err != nil {
+		h.log.Error("list memories", "error", err, "user_id", req.UserID)
+		writeError(w, fmt.Errorf("list memories: %w", err))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, buildMemoriesResponse(out.Memories))
 }
 
-// MemoriesRequest holds the parsed inputs for GET /users/{user_id}/memories.
 type MemoriesRequest struct {
 	UserID  string
 	Filters store.ListMemoriesFilters
