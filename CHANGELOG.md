@@ -5,6 +5,34 @@ Entries are in reverse chronological order.
 
 ---
 
+## v1.2.2 — Extraction prompt overhaul
+
+Rewrites the extraction system prompt with explicit rules for self-contained
+values (all pronouns replaced with "User" or the named entity), specificity
+preservation (proper nouns and counts must survive unchanged), and
+meaning-preservation guards against semantic inversion. Adds dedicated sections
+for implicit facts (context-inferred attributes), incidental facts (personal
+context embedded in questions), and opinion quality filtering (weak stances
+skipped; value must capture the reasoning). Corrections now produce only the
+final corrected fact — the outdated version is not extracted. Events that imply
+a current state are converted to facts rather than duplicated. A pre-output
+checklist instructs the model to re-scan for missed topics before returning.
+
+Fixture results after prompt change:
+  basic_facts:      3/3 (100%)
+  fact_evolution:   1/1 (100%), 1 violation — "Stripe" persists (bi-temporal history, expected)
+  multi_hop:        0/1 (0%) — graph channel not yet implemented
+  noise_resistance: 0 violations
+  opinion_arc:      1/1 (100%), 1 violation — "game changer" present (opinion_view not yet implemented)
+  OVERALL:          5/6 (83%), 2 violations
+  JUDGE:            5/6 assertions correct (83%), 1 failure — opinion evolution arc not yet captured
+
+Results are identical to v1.1.4. The prompt changes are quality improvements
+for edge cases not covered by the current fixture set; the measurable delta will
+surface when opinion_view and graph traversal are in place.
+
+---
+
 ## v1.1.5 — LLM-as-judge assertions in fixture runner
 
 Adds `judge_assertions` to fixture probes and a `judgeAssertion` function to the test runner.
