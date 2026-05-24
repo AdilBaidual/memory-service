@@ -51,9 +51,6 @@ func loadFixtures(dir string) ([]Fixture, error) {
 
 	var fixtures []Fixture
 	for _, e := range entries {
-		if e.Name() != "05_opinion_arc.yaml" {
-			continue
-		}
 		if !strings.HasSuffix(e.Name(), ".yaml") {
 			continue
 		}

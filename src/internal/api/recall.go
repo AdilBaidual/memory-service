@@ -53,8 +53,6 @@ func NewRecallHandler(pool *pgxpool.Pool, ret retrieval.Retriever) http.HandlerF
 			return
 		}
 
-		slog.Debug("[DEBUG] recall:", "request_id", reqID, "result", memories)
-
 		writeJSON(w, http.StatusOK, RecallResponse{
 			Context:   buildSimpleContext(memories),
 			Citations: buildCitations(memories),
