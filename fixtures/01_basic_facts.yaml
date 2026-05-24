@@ -26,6 +26,11 @@ probes:
     expected_facts:
       - "Berlin"
     not_expected_facts: []
+    judge_assertions:
+      - claim: "The user lives in Berlin"
+        should_be_true: true
+      - claim: "The user lives outside of Germany"
+        should_be_true: false
 
   - query: "What does the user do for work?"
     session_id: bf-probe
@@ -34,6 +39,13 @@ probes:
     expected_facts:
       - "Notion"
     not_expected_facts: []
+    judge_assertions:
+      - claim: "The user works at Notion"
+        should_be_true: true
+      - claim: "The user is a product manager"
+        should_be_true: true
+      - claim: "The user is unemployed"
+        should_be_true: false
 
   - query: "Does the user have any pets?"
     session_id: bf-probe
@@ -42,3 +54,8 @@ probes:
     expected_facts:
       - "Biscuit"
     not_expected_facts: []
+    judge_assertions:
+      - claim: "The user has a dog named Biscuit"
+        should_be_true: true
+      - claim: "The user has no pets"
+        should_be_true: false

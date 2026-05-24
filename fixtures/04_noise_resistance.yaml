@@ -27,6 +27,11 @@ probes:
       - "Google"
       - "engineer"
       - "manager"
+    judge_assertions:
+      - claim: "The context contains information about where the user works"
+        should_be_true: false
+      - claim: "The context is empty or contains only unrelated information"
+        should_be_true: true
 
   - query: "What city does the user live in?"
     session_id: nr-probe
@@ -38,3 +43,8 @@ probes:
       - "Amsterdam"
       - "London"
       - "New York"
+    judge_assertions:
+      - claim: "The context contains information about which city the user lives in"
+        should_be_true: false
+      - claim: "The context is empty or contains only unrelated information"
+        should_be_true: true

@@ -219,3 +219,10 @@ probes:
     expected_facts:
       - "Amsterdam"
     not_expected_facts: []
+    judge_assertions:
+      - claim: "The user has a cat named Luna"
+        should_be_true: true
+      - claim: "The user lives in Amsterdam"
+        should_be_true: true
+      - claim: "Luna's location can be determined from the user's home city"
+        should_be_true: true

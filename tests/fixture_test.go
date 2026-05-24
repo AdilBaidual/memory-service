@@ -61,12 +61,12 @@ func loadFixtures(dir string) ([]Fixture, error) {
 
 	var fixtures []Fixture
 	for _, e := range entries {
-		if e.Name() != "02_fact_evolution.yaml" {
-			continue
-		}
 		if !strings.HasSuffix(e.Name(), ".yaml") {
 			continue
 		}
+		//if e.Name() != "03_multi_hop.yaml" {
+		//	continue
+		//}
 		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", e.Name(), err)
@@ -116,7 +116,7 @@ func TestFixtureQuality(t *testing.T) {
 			// Wipe all users from this fixture so stale data from previous
 			// runs cannot pollute retrieval results.
 			for _, userID := range fixtureUserIDs(f) {
-				fmt.Println("DELETED userID:", userID)
+				t.Log("DELETED userID:", userID)
 				resp := deleteReq(t, "/users/"+userID)
 				mustStatus(t, resp, 204)
 				resp.Body.Close()
@@ -197,6 +197,7 @@ func TestFixtureQuality(t *testing.T) {
 
 				t.Logf("  probe %q: %d/%d hits",
 					probe.Query, hits, len(probe.ExpectedFacts))
+				//t.Logf("  recall response:\n%s", recallCtx)
 
 				// LLM judge assertions (only when judge_assertions is populated)
 				judgeHits, judgeTotal, judgeViolations := 0, 0, 0
