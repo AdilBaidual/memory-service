@@ -1,10 +1,11 @@
-package predicates
+// Package retrieval implements the hybrid retrieval pipeline.
+package retrieval
 
-// Groups maps semantic categories to canonical predicates.
+// predicateGroups maps semantic categories to canonical predicates.
 // Used by graph traversal to expand query intent without requiring
 // exact predicate string match.
 // v1: hardcoded. v2: embedding-based dynamic matching.
-var Groups = map[string][]string{
+var predicateGroups = map[string][]string{
 	"location": {
 		"lives_in", "located_in", "resides_in",
 		"moved_to", "based_in", "home_in",
@@ -25,11 +26,11 @@ var Groups = map[string][]string{
 	},
 }
 
-// ExpandPredicate returns all predicates in the same group as the
+// expandPredicate returns all predicates in the same group as the
 // given predicate, including itself.
 // Returns []string{predicate} if no group found (passthrough).
-func ExpandPredicate(predicate string) []string {
-	for _, members := range Groups {
+func expandPredicate(predicate string) []string {
+	for _, members := range predicateGroups {
 		for _, m := range members {
 			if m == predicate {
 				return members

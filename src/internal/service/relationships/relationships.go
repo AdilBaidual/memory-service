@@ -1,6 +1,5 @@
-// Package consolidation handles ADD/UPDATE/NOOP decisions for extracted memories,
-// maintaining bi-temporal supersedes chains.
-package consolidation
+// Package relationships persists entity triplets extracted from conversation turns.
+package relationships
 
 import (
 	"context"
@@ -8,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 
 	"memory-service/internal/adapters/llm"
 	"memory-service/internal/adapters/store"
@@ -24,7 +22,7 @@ import (
 // break correctness — retrieval degrades gracefully to semantic+FTS.
 func ProcessRelationships(
 	ctx context.Context,
-	tx pgx.Tx,
+	q store.Querier,
 	userID string,
 	relationships []llm.Relationship,
 	entityMemoryMap map[string]uuid.UUID,
@@ -46,27 +44,27 @@ func ProcessRelationships(
 			continue
 		}
 
-		if err := store.UpsertEntity(ctx, tx, subj, userID,
+		if err := store.UpsertEntity(ctx, q, subj, userID,
 			inferEntityType(subj)); err != nil {
 			return fmt.Errorf("upsert subject %q: %w", subj, err)
 		}
 
-		if err := store.UpsertEntity(ctx, tx, obj, userID,
+		if err := store.UpsertEntity(ctx, q, obj, userID,
 			inferEntityType(obj)); err != nil {
 			return fmt.Errorf("upsert object %q: %w", obj, err)
 		}
 
-		if err := store.InsertRelationship(ctx, tx,
+		if err := store.InsertRelationship(ctx, q,
 			userID, subj, pred, obj, srcID); err != nil {
 			return fmt.Errorf("insert relationship (%s,%s,%s): %w",
 				subj, pred, obj, err)
 		}
 
-		if err := store.InsertEntityMention(ctx, tx,
+		if err := store.InsertEntityMention(ctx, q,
 			srcID, subj, userID, "subject"); err != nil {
 			return fmt.Errorf("mention subject %q: %w", subj, err)
 		}
-		if err := store.InsertEntityMention(ctx, tx,
+		if err := store.InsertEntityMention(ctx, q,
 			srcID, obj, userID, "object"); err != nil {
 			return fmt.Errorf("mention object %q: %w", obj, err)
 		}
@@ -97,4 +95,21 @@ func inferEntityType(name string) string {
 		return "person"
 	}
 	return ""
+}
+
+// Processor wraps ProcessRelationships as a receiver method so it can satisfy
+// the usecase.RelationshipsService interface.
+type Processor struct{}
+
+func NewProcessor() *Processor { return &Processor{} }
+
+func (p *Processor) ProcessRelationships(
+	ctx context.Context,
+	q store.Querier,
+	userID string,
+	rels []llm.Relationship,
+	entityMemoryMap map[string]uuid.UUID,
+	fallbackMemoryID uuid.UUID,
+) error {
+	return ProcessRelationships(ctx, q, userID, rels, entityMemoryMap, fallbackMemoryID)
 }

@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"memory-service/internal/adapters/llm"
-	"memory-service/internal/adapters/store"
 )
 
 // Extractor orchestrates LLM-based memory extraction.
@@ -22,41 +21,27 @@ func New(client *llm.Client) *Extractor {
 	return &Extractor{client: client}
 }
 
-// Extract runs LLM extraction on a turn and returns memory candidates
+// Extract runs LLM extraction on the pre-formatted conversation and returns memory candidates
 // and relationship triplets.
 // Returns nil, nil, nil when the LLM client is not configured — callers should
 // treat this as graceful degradation (turn saved, no memories extracted).
 func (e *Extractor) Extract(
 	ctx context.Context,
-	pool store.Querier,
-	userID string,
-	messages []store.TurnMessage,
+	input ExtractionInput,
 ) ([]Candidate, []llm.Relationship, error) {
 	if e.client == nil {
 		return nil, nil, nil
 	}
 
-	existingKVs, err := store.GetCanonicalKeyValues(ctx, pool, userID)
-	if err != nil {
-		slog.Warn("get canonical key values failed, proceeding without hints", "error", err, "user_id", userID)
-		existingKVs = nil
-	}
-
-	existingTopics, err := store.GetOpinionTopics(ctx, pool, userID)
-	if err != nil {
-		slog.Warn("get opinion topics failed, proceeding without hints", "error", err, "user_id", userID)
-		existingTopics = nil
-	}
-
-	kvHints := make([]llm.KeyValue, len(existingKVs))
-	for i, kv := range existingKVs {
+	kvHints := make([]llm.KeyValue, len(input.ExistingKeyValues))
+	for i, kv := range input.ExistingKeyValues {
 		kvHints[i] = llm.KeyValue{Key: kv.Key, Value: kv.Value}
 	}
 
 	req := llm.ExtractionRequest{
-		Conversation:          formatConversation(messages),
+		Conversation:          input.Conversation,
 		ExistingKeyValues:     kvHints,
-		ExistingOpinionTopics: existingTopics,
+		ExistingOpinionTopics: input.ExistingOpinionTopics,
 	}
 
 	result, err := e.client.Extract(ctx, req)
@@ -72,12 +57,12 @@ func (e *Extractor) Extract(
 		memType := normalizeType(item.Type)
 		if memType != item.Type {
 			slog.Warn("llm returned unexpected type, normalized",
-				"raw", item.Type, "normalized", memType, "user_id", userID)
+				"raw", item.Type, "normalized", memType)
 		}
 		evidence := normalizeEvidence(item.Evidence)
 		if evidence != item.Evidence {
 			slog.Warn("llm returned unexpected evidence, normalized",
-				"raw", item.Evidence, "normalized", evidence, "user_id", userID)
+				"raw", item.Evidence, "normalized", evidence)
 		}
 		key := strings.TrimSpace(item.Key)
 		candidates = append(candidates, Candidate{
@@ -101,9 +86,9 @@ func (e *Extractor) Embed(ctx context.Context, text string) ([]float32, error) {
 	return e.client.Embed(ctx, text)
 }
 
-// formatConversation serializes messages as "role: content" lines.
+// FormatConversation serializes messages as "role: content" lines.
 // Tool messages are prefixed with [tool] to signal context-only status.
-func formatConversation(messages []store.TurnMessage) string {
+func FormatConversation(messages []Message) string {
 	var sb strings.Builder
 	for _, m := range messages {
 		switch m.Role {
@@ -121,7 +106,6 @@ func formatConversation(messages []store.TurnMessage) string {
 
 // computeConfidence returns a confidence score based on the evidence type.
 // Confidence is computed by the system; it is never requested from the LLM.
-// Expects a normalised value ("explicit" or "implicit") — call normalizeEvidence first.
 func computeConfidence(evidence string) float32 {
 	switch evidence {
 	case "explicit":

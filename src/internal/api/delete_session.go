@@ -2,22 +2,18 @@ package api
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
-	"github.com/jackc/pgx/v5/pgxpool"
 
-	"memory-service/internal/adapters/store"
+	"memory-service/internal/usecase"
 )
 
 // NewDeleteSessionHandler handles DELETE /sessions/{session_id}.
-// Removes all data associated with the session: memories (with cascading
-// removal of entity_mentions and entity_relationships via FK) and turns.
-func NewDeleteSessionHandler(pool *pgxpool.Pool) http.HandlerFunc {
+func NewDeleteSessionHandler(uc *usecase.DeleteSessionUsecase) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
@@ -29,31 +25,17 @@ func NewDeleteSessionHandler(pool *pgxpool.Pool) http.HandlerFunc {
 			return
 		}
 
-		tx, err := pool.Begin(ctx)
+		result, err := uc.Delete(ctx, req.SessionID)
 		if err != nil {
-			slog.Error("begin transaction", "error", err, "request_id", reqID, "session_id", req.SessionID)
-			writeError(w, fmt.Errorf("begin transaction: %w", err))
-			return
-		}
-		defer tx.Rollback(ctx) //nolint:errcheck
-
-		memoriesDeleted, turnsDeleted, err := store.DeleteSessionData(ctx, tx, req.SessionID)
-		if err != nil {
-			slog.Error("delete session data", "error", err, "request_id", reqID, "session_id", req.SessionID)
-			writeError(w, fmt.Errorf("delete session: %w", err))
-			return
-		}
-
-		if err := tx.Commit(ctx); err != nil {
-			slog.Error("commit transaction", "error", err, "request_id", reqID)
-			writeError(w, fmt.Errorf("commit transaction: %w", err))
+			slog.Error("delete session", "error", err, "request_id", reqID, "session_id", req.SessionID)
+			writeError(w, err)
 			return
 		}
 
 		slog.Info("session deleted",
 			"session_id", req.SessionID,
-			"memories_deleted", memoriesDeleted,
-			"turns_deleted", turnsDeleted)
+			"memories_deleted", result.MemoriesDeleted,
+			"turns_deleted", result.TurnsDeleted)
 		w.WriteHeader(http.StatusNoContent)
 	}
 }

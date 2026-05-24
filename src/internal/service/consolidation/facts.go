@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 
 	"memory-service/internal/adapters/store"
 )
@@ -38,14 +37,14 @@ func (r Result) String() string {
 }
 
 // ConsolidateFact applies ADD / NOOP / UPDATE logic for a single memory candidate.
-// Must be called inside a transaction.
+// Must be called inside a transaction (q is a pgx.Tx satisfying store.Querier).
 //
 // When key is nil (events, keyless items): always ADD — nothing to consolidate against.
 //
 // Returns the ID of the inserted/existing memory and the result type.
 func ConsolidateFact(
 	ctx context.Context,
-	tx pgx.Tx,
+	q store.Querier,
 	userID string,
 	memType string,
 	key *string,
@@ -58,35 +57,35 @@ func ConsolidateFact(
 	sourceTurn *uuid.UUID,
 ) (uuid.UUID, Result, error) {
 	if key == nil || *key == "" {
-		id, err := insertNew(ctx, tx, userID, memType, key, value,
+		id, err := insertNew(ctx, q, userID, memType, key, value,
 			evidence, confidence, entities, embedding,
 			sourceSession, sourceTurn, nil)
 		return id, ResultADD, err
 	}
 
-	existing, err := store.FindActiveByKey(ctx, tx, userID, memType, *key)
+	existing, err := store.FindActiveByKey(ctx, q, userID, memType, *key)
 	if err != nil {
 		return uuid.Nil, ResultADD, fmt.Errorf("find active by key: %w", err)
 	}
 
 	if existing == nil {
-		id, err := insertNew(ctx, tx, userID, memType, key, value,
+		id, err := insertNew(ctx, q, userID, memType, key, value,
 			evidence, confidence, entities, embedding,
 			sourceSession, sourceTurn, nil)
 		return id, ResultADD, err
 	}
 
 	if normalizeValue(existing.Value) == normalizeValue(value) {
-		if err := store.TouchMemory(ctx, tx, existing.ID); err != nil {
+		if err := store.TouchMemory(ctx, q, existing.ID); err != nil {
 			return existing.ID, ResultNOOP, fmt.Errorf("touch memory: %w", err)
 		}
 		return existing.ID, ResultNOOP, nil
 	}
 
-	if err := store.MarkSuperseded(ctx, tx, existing.ID); err != nil {
+	if err := store.MarkSuperseded(ctx, q, existing.ID); err != nil {
 		return uuid.Nil, ResultUPDATE, fmt.Errorf("mark superseded: %w", err)
 	}
-	id, err := insertNew(ctx, tx, userID, memType, key, value,
+	id, err := insertNew(ctx, q, userID, memType, key, value,
 		evidence, confidence, entities, embedding,
 		sourceSession, sourceTurn, &existing.ID)
 	return id, ResultUPDATE, err
@@ -97,9 +96,31 @@ func normalizeValue(s string) string {
 	return strings.TrimSpace(strings.ToLower(s))
 }
 
+// Consolidator wraps ConsolidateFact as a receiver method so it can satisfy
+// the usecase.ConsolidationService interface.
+type Consolidator struct{}
+
+func NewConsolidator() *Consolidator { return &Consolidator{} }
+
+func (c *Consolidator) ConsolidateFact(
+	ctx context.Context,
+	q store.Querier,
+	userID, memType string,
+	key *string,
+	value, evidence string,
+	confidence float32,
+	entities []string,
+	embedding []float32,
+	sourceSession *string,
+	sourceTurn *uuid.UUID,
+) (uuid.UUID, Result, error) {
+	return ConsolidateFact(ctx, q, userID, memType, key, value, evidence, confidence,
+		entities, embedding, sourceSession, sourceTurn)
+}
+
 func insertNew(
 	ctx context.Context,
-	tx pgx.Tx,
+	q store.Querier,
 	userID, memType string,
 	key *string,
 	value, evidence string,
@@ -115,7 +136,7 @@ func insertNew(
 		entJSON = []byte("[]")
 	}
 
-	id, err := store.InsertMemory(ctx, tx, store.InsertMemoryParams{
+	id, err := store.InsertMemory(ctx, q, store.InsertMemoryParams{
 		UserID:        userID,
 		Type:          memType,
 		Key:           key,

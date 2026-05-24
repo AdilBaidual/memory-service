@@ -1,3 +1,4 @@
+// Package retrieval implements the hybrid retrieval pipeline.
 package retrieval
 
 import (

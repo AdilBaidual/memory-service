@@ -5,27 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
-	chimiddleware "github.com/go-chi/chi/v5/middleware"
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
-
-	"memory-service/internal/adapters/store"
-	"memory-service/internal/consolidation"
-	"memory-service/internal/extraction"
+	"memory-service/internal/usecase"
 )
 
 // NewTurnsHandler handles POST /turns.
-// ext may be nil when OPENAI_API_KEY is not set — turns are saved without extraction.
-func NewTurnsHandler(pool *pgxpool.Pool, ext *extraction.Extractor) http.HandlerFunc {
+func NewTurnsHandler(uc *usecase.IngestTurnUsecase) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
 		defer cancel()
-		reqID := chimiddleware.GetReqID(r.Context())
 
 		req, err := parseTurnRequest(r)
 		if err != nil {
@@ -35,219 +25,19 @@ func NewTurnsHandler(pool *pgxpool.Pool, ext *extraction.Extractor) http.Handler
 
 		sanitizeTurnMessages(req.Messages)
 
-		messagesJSON, err := json.Marshal(req.Messages)
-		if err != nil {
-			slog.Error("marshal messages", "error", err, "request_id", reqID)
-			writeError(w, fmt.Errorf("marshal messages: %w", err))
-			return
-		}
-
-		metadata := req.Metadata
-		if len(metadata) == 0 {
-			metadata = json.RawMessage("{}")
-		}
-
-		// Step 2: Save raw turn in its own transaction.
-		tx, err := pool.Begin(ctx)
-		if err != nil {
-			slog.Error("begin transaction", "error", err, "request_id", reqID)
-			writeError(w, fmt.Errorf("begin transaction: %w", err))
-			return
-		}
-		defer tx.Rollback(ctx) //nolint:errcheck
-
-		turnID, err := store.InsertTurn(ctx, tx, store.InsertTurnParams{
+		out, err := uc.Ingest(ctx, usecase.TurnInput{
 			SessionID: req.SessionID,
 			UserID:    req.UserID,
-			Messages:  messagesJSON,
+			Messages:  toUsecaseMessages(req.Messages),
 			Timestamp: req.Timestamp,
-			Metadata:  metadata,
+			Metadata:  req.Metadata,
 		})
 		if err != nil {
-			slog.Error("insert turn", "error", err, "request_id", reqID, "session_id", req.SessionID)
-			writeError(w, fmt.Errorf("insert turn: %w", err))
+			writeError(w, fmt.Errorf("ingest turn: %w", err))
 			return
 		}
 
-		if err := tx.Commit(ctx); err != nil {
-			slog.Error("commit transaction", "error", err, "request_id", reqID)
-			writeError(w, fmt.Errorf("commit transaction: %w", err))
-			return
-		}
-
-		userID := ""
-		if req.UserID != nil {
-			userID = *req.UserID
-		}
-		slog.Info("turn inserted",
-			"turn_id", turnID.String(),
-			"session_id", req.SessionID,
-			"user_id", userID,
-			"message_count", len(req.Messages),
-		)
-
-		// Step 3: Extraction — skip if no user or extractor.
-		if req.UserID == nil {
-			writeJSON(w, http.StatusCreated, buildTurnResponse(turnID.String()))
-			return
-		}
-		if ext == nil {
-			slog.Warn("extractor not configured, skipping extraction", "request_id", reqID)
-			writeJSON(w, http.StatusCreated, buildTurnResponse(turnID.String()))
-			return
-		}
-
-		turnMsgs := make([]store.TurnMessage, len(req.Messages))
-		for i, m := range req.Messages {
-			turnMsgs[i] = store.TurnMessage{Role: m.Role, Content: m.Content}
-		}
-
-		llmCtx, llmCancel := context.WithTimeout(ctx, 30*time.Second)
-		defer llmCancel()
-		candidates, relationships, err := ext.Extract(llmCtx, pool, *req.UserID, turnMsgs)
-		if err != nil {
-			slog.Warn("extraction failed", "error", err, "request_id", reqID)
-			writeJSON(w, http.StatusCreated, buildTurnResponse(turnID.String()))
-			return
-		}
-		if len(candidates) == 0 && len(relationships) == 0 {
-			slog.Info("no candidates extracted", "request_id", reqID)
-			writeJSON(w, http.StatusCreated, buildTurnResponse(turnID.String()))
-			return
-		}
-
-		// Step 4: Embed each candidate and persist in a second transaction.
-		tx2, err := pool.Begin(ctx)
-		if err != nil {
-			slog.Error("begin memory transaction", "error", err, "request_id", reqID)
-			writeJSON(w, http.StatusCreated, buildTurnResponse(turnID.String()))
-			return
-		}
-		defer tx2.Rollback(ctx) //nolint:errcheck
-
-		// entityAnchors tracks the best source memory for each entity name.
-		// Facts and preferences take priority over events and opinions —
-		// LLM output order must not determine which memory anchors a relationship.
-		type entityAnchor struct {
-			memID    uuid.UUID
-			fromFact bool
-		}
-		entityAnchors := make(map[string]entityAnchor)
-
-		inserted := 0
-		var lastMemoryID uuid.UUID
-		for _, c := range candidates {
-			if ctx.Err() != nil {
-				break
-			}
-			embCtx, embCancel := context.WithTimeout(ctx, 10*time.Second)
-			embedding, embErr := ext.Embed(embCtx, c.Value)
-			embCancel()
-			if embErr != nil {
-				slog.Warn("embed candidate failed, storing without vector",
-					"error", embErr, "request_id", reqID)
-				embedding = nil
-			}
-
-			var memID uuid.UUID
-			switch c.Type {
-			case "fact", "preference":
-				id, result, consErr := consolidation.ConsolidateFact(ctx, tx2,
-					*req.UserID, c.Type, c.Key, c.Value, c.Evidence, c.Confidence,
-					c.Entities, embedding, &req.SessionID, &turnID,
-				)
-				if consErr != nil {
-					slog.Warn("consolidation failed",
-						"type", c.Type, "key", c.Key, "err", consErr, "request_id", reqID)
-					continue
-				}
-				memID = id
-				if result != consolidation.ResultNOOP {
-					lastMemoryID = id
-				}
-				inserted++
-				slog.Debug("memory consolidated",
-					"result", result.String(), "type", c.Type, "key", c.Key, "user_id", *req.UserID)
-
-			case "opinion", "event":
-				entJSON, _ := json.Marshal(c.Entities)
-				id, insErr := store.InsertMemory(ctx, tx2, store.InsertMemoryParams{
-					UserID:        *req.UserID,
-					Type:          c.Type,
-					Key:           c.Key,
-					Value:         c.Value,
-					Evidence:      c.Evidence,
-					Confidence:    c.Confidence,
-					Entities:      json.RawMessage(entJSON),
-					Embedding:     embedding,
-					SourceSession: &req.SessionID,
-					SourceTurn:    &turnID,
-					Supersedes:    nil,
-				})
-				if insErr != nil {
-					slog.Warn("insert failed",
-						"type", c.Type, "key", c.Key, "err", insErr, "request_id", reqID)
-					continue
-				}
-				memID = id
-				lastMemoryID = id
-				inserted++
-				slog.Debug("memory inserted", "type", c.Type, "key", c.Key, "user_id", *req.UserID)
-			}
-
-			// Register entities so relationships can be anchored to this memory.
-			// Facts/preferences override events/opinions for the same entity name:
-			// the stable, authoritative memory is a stronger graph anchor.
-			fromFact := c.Type == "fact" || c.Type == "preference"
-			for _, ent := range c.Entities {
-				lower := strings.ToLower(strings.TrimSpace(ent))
-				if lower == "" || lower == "user" {
-					continue
-				}
-				existing, exists := entityAnchors[lower]
-				if !exists || (!existing.fromFact && fromFact) {
-					entityAnchors[lower] = entityAnchor{memID: memID, fromFact: fromFact}
-				}
-			}
-		}
-
-		entityMemoryMap := make(map[string]uuid.UUID, len(entityAnchors))
-		for k, v := range entityAnchors {
-			entityMemoryMap[k] = v.memID
-		}
-
-		// Process relationship triplets after all memories are saved.
-		if len(relationships) > 0 {
-			if err := consolidation.ProcessRelationships(
-				ctx, tx2,
-				*req.UserID,
-				relationships,
-				entityMemoryMap,
-				lastMemoryID,
-			); err != nil {
-				// Non-fatal: relationships are navigation-only data.
-				slog.Warn("relationship processing failed",
-					"err", err,
-					"user_id", *req.UserID,
-					"count", len(relationships))
-			} else {
-				slog.Debug("relationships processed",
-					"count", len(relationships),
-					"user_id", *req.UserID)
-			}
-		}
-
-		if err := tx2.Commit(ctx); err != nil {
-			slog.Error("commit memory transaction", "error", err, "request_id", reqID)
-		} else {
-			slog.Info("memories inserted",
-				"count", inserted,
-				"turn_id", turnID.String(),
-				"user_id", *req.UserID,
-			)
-		}
-
-		writeJSON(w, http.StatusCreated, buildTurnResponse(turnID.String()))
+		writeJSON(w, http.StatusCreated, buildTurnResponse(out.ID))
 	}
 }
 
@@ -285,7 +75,6 @@ func buildTurnResponse(id string) TurnResponse {
 	return TurnResponse{ID: id}
 }
 
-// TODO: подумать как улучшить
 func sanitizeTurnMessages(msgs []Message) {
 	for i := range msgs {
 		msgs[i].Content = sanitizeText(msgs[i].Content)
@@ -296,3 +85,10 @@ func sanitizeTurnMessages(msgs []Message) {
 	}
 }
 
+func toUsecaseMessages(msgs []Message) []usecase.TurnMessage {
+	out := make([]usecase.TurnMessage, len(msgs))
+	for i, m := range msgs {
+		out[i] = usecase.TurnMessage{Role: m.Role, Content: m.Content, Name: m.Name}
+	}
+	return out
+}

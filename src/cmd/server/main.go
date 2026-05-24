@@ -15,8 +15,11 @@ import (
 	"memory-service/internal/adapters/store"
 	"memory-service/internal/api"
 	"memory-service/internal/config"
-	"memory-service/internal/extraction"
-	"memory-service/internal/retrieval"
+	"memory-service/internal/service/consolidation"
+	"memory-service/internal/service/extraction"
+	"memory-service/internal/service/relationships"
+	"memory-service/internal/service/retrieval"
+	"memory-service/internal/usecase"
 )
 
 func main() {
@@ -69,12 +72,21 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Extractor wraps the LLM client for memory extraction.
+	// Service layer.
 	ext := extraction.New(llmClient)
-
 	ret := retrieval.NewHybridRetriever(pool, llmClient)
+	cons := consolidation.NewConsolidator()
+	relProc := relationships.NewProcessor()
 
-	handler := api.NewRouter(pool, cfg, ext, ret)
+	// Usecase layer.
+	turnsUC := usecase.NewIngestTurnUsecase(pool, ext, cons, relProc)
+	recallUC := usecase.NewRecallUsecase(ret)
+	searchUC := usecase.NewSearchUsecase(ret)
+	memoriesUC := usecase.NewListMemoriesUsecase(pool)
+	deleteSessionUC := usecase.NewDeleteSessionUsecase(pool)
+	deleteUserUC := usecase.NewDeleteUserUsecase(pool)
+
+	handler := api.NewRouter(pool, cfg, turnsUC, recallUC, searchUC, memoriesUC, deleteSessionUC, deleteUserUC)
 
 	addr := fmt.Sprintf(":%s", cfg.Port)
 	server := &http.Server{

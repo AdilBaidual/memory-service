@@ -11,13 +11,13 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"memory-service/internal/adapters/store"
+	"memory-service/internal/usecase"
 )
 
 // NewListUserMemoriesHandler handles GET /users/{user_id}/memories.
-func NewListUserMemoriesHandler(pool *pgxpool.Pool) http.HandlerFunc {
+func NewListUserMemoriesHandler(uc *usecase.ListMemoriesUsecase) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 		defer cancel()
@@ -28,14 +28,17 @@ func NewListUserMemoriesHandler(pool *pgxpool.Pool) http.HandlerFunc {
 			return
 		}
 
-		mems, err := store.ListMemoriesByUser(ctx, pool, req.UserID, req.Filters)
+		out, err := uc.List(ctx, usecase.MemoriesInput{
+			UserID:  req.UserID,
+			Filters: req.Filters,
+		})
 		if err != nil {
 			slog.Error("list memories", "error", err, "user_id", req.UserID)
 			writeError(w, fmt.Errorf("list memories: %w", err))
 			return
 		}
 
-		writeJSON(w, http.StatusOK, buildMemoriesResponse(mems))
+		writeJSON(w, http.StatusOK, buildMemoriesResponse(out.Memories))
 	}
 }
 
