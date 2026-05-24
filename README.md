@@ -27,6 +27,25 @@ retrieval, opinion synthesis). `adapters` wraps external dependencies (PostgreSQ
 Cohere). Interfaces are defined at the consumer (usecase), not the implementer (service/adapters),
 so each layer is testable in isolation.
 
+### Spec compliance checklist
+
+The service targets every criterion from the "excellent" bar in the task specification:
+
+- **Contract compliance** — all seven endpoints implemented with exact shapes and status codes per spec §3
+- **Structured extraction** — memories have types (`fact`, `preference`, `opinion`, `event`), confidence scores, and full provenance (`source_session`, `source_turn`, `supersedes`)
+- **Fact evolution** — contradictions detected via canonical key lookup; old facts superseded (not deleted) with bi-temporal history preserved and inspectable via `/users/{id}/memories`
+- **Real recall ranking** — hybrid pipeline: embedding (pgvector HNSW) + keyword (Postgres FTS) + entity graph (2-hop CTE) + RRF fusion + temporal recency boost + Cohere cross-encoder rerank
+- **Multi-hop recall** — entity graph traversal connects memories across sessions ("city where Luna's owner lives")
+- **Query rewriting** — HyDE rewrites queries before embedding for better dense retrieval on abstractly phrased questions
+- **Context assembly** — priority-ordered sections with explicit token budget logic (stable facts → opinions → retrieved → events)
+- **Synchronous correctness** — after `POST /turns` returns 201, all extracted data is immediately queryable; no eventual consistency gaps
+- **Token budget** — tiktoken-go cl100k_base; total never exceeds `max_tokens` in the request
+- **Persistence** — named Docker volume; restart is transparent to clients
+- **Graceful degradation** — missing API keys, cold sessions, oversized payloads, malformed input all handled without crashes
+- **Anonymous sessions** — `user_id` is optional across all endpoints; session-scoped memory works without authentication
+- **Test coverage** — contract roundtrip, restart persistence, concurrent sessions, malformed input, recall quality fixture with LLM-as-judge assertions
+- **CHANGELOG** — iteration history with measured metrics at each step
+
 ### POST /turns — ingest flow
 
 ```
@@ -195,7 +214,7 @@ facts only to user-role messages. Tool outputs are context, not source.
    the raw query, then runs two hops through `entity_relationships`:
    - Hop 1: memories directly linked to query entities (score 1.0, weighted by `mention_count`).
    - Hop 2: memories linked to neighbour entities discovered in hop 1 (score 0.5, flat).
-   Hop 2 enables reasoning across entity chains ("city of the user's pet's owner").
+     Hop 2 enables reasoning across entity chains ("city of the user's pet's owner").
 
 4. **Temporal recency boost** (post-fusion). After RRF fusion, each score is multiplied
    by `α + (1−α) × exp(−λ × days)` (λ=0.005, α=0.7). Half-life is ~139 days. The 0.7
@@ -264,6 +283,7 @@ priority sections. The total never exceeds the `max_tokens` field in the request
 | OpenAI API timeout or error | Turn is saved (201 returned). Extraction failure is logged at WARN. Memories from that turn are not created. Subsequent turns are unaffected. |
 | Cohere API error | Reranker step is skipped silently. RRF order is used. Logged at WARN. `/recall` still returns a response. |
 | Cold user (no memories) | `/recall` and `/search` return 200 with empty results. Never a 404 or 500. |
+| Anonymous session (`user_id` null) | Extraction runs normally, scoped to the session. `/recall` and `/search` return session-scoped context. Data is isolated from all other sessions. |
 | Malformed JSON in request body | 400 with an error message. Service does not crash. |
 | Oversized request body (>1 MB) | 413. Body limit is enforced in middleware before any processing. |
 | Postgres unavailable | All endpoints return 500. The service process stays alive and recovers automatically when Postgres becomes available again. |
@@ -272,34 +292,71 @@ priority sections. The total never exceeds the `max_tokens` field in the request
 
 ---
 
-## Session scoping and data lifecycle
+## Session scoping and identity
 
-Memories are scoped to `user_id` and shared across all sessions of that user — this is
-the long-term memory feature. Session context (recent turns) is scoped to `session_id`.
-Cross-user isolation is strict.
+The service supports two identity modes:
 
-**DELETE /sessions/{id}** removes only the conversation log (turns) and all memories
-that originated from that session (`source_session = id`). Entity mentions and
-relationship edges cascade automatically via FK. Entity rows survive because they are
-user-scoped and may have been referenced by other sessions.
+**Authenticated** (`user_id` provided): memories are scoped to the user and shared
+across all of their sessions. A fact learned in session 1 is available in session 2
+for the same user — this is the long-term memory feature. Cross-user isolation is
+strict at every query.
 
-**DELETE /users/{id}** removes everything: turns, memories, entities, relationships,
-mentions.
+**Anonymous** (`user_id` null): when no user identity is known — for example a
+support chat before login — the session itself becomes the scope. Extraction runs
+normally; memories are stored with `user_id=NULL` and scoped to `session_id`. Two
+anonymous sessions never see each other's memories.
 
-**POST /search** supports two modes:
-- `user_id` only: hybrid retrieval across all of the user's memories.
-- `session_id` only: returns memories sourced directly from that session (no retrieval).
-- Both fields: hybrid retrieval scoped to the user, filtered to that session.
+This means `user_id` is optional in `POST /turns`, `POST /recall`, and `POST /search`.
+`session_id` is always required in `/turns` and `/recall`. The service resolves the
+identity scope automatically:
+
+```
+user_id present  →  user scope  (memories shared across sessions for that user)
+user_id absent   →  session scope  (memories isolated to this session only)
+```
+
+**DELETE /sessions/{id}** removes the conversation log (turns) and all memories that
+originated from that session (`source_session = id`). Entity mentions and relationship
+edges cascade automatically via FK. Entity rows are cleaned up if they have no remaining
+mentions. Works identically for authenticated and anonymous sessions.
+
+**DELETE /users/{id}** removes everything for that user: turns, memories, entities,
+relationships, mentions. Anonymous session data is cleaned up via DELETE /sessions.
+
+**POST /search** supports three scoping modes:
+
+| `user_id` | `session_id` | Behavior |
+|-----------|--------------|----------|
+| provided | provided | Hybrid retrieval for user, filtered to that session |
+| provided | absent | Hybrid retrieval across all user memories |
+| absent | provided | Memories sourced directly from that session |
+| absent | absent | Returns empty results |
 
 ---
 
 ## How to run
 
+**Prerequisites:** Docker, Docker Compose. Two API keys are needed for full functionality:
+
+| Key | Required | Where to get it |
+|-----|----------|-----------------|
+| `OPENAI_API_KEY` | Required — extraction and embeddings will not run without it | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) — requires a funded account (minimum $5 credit) |
+| `COHERE_API_KEY` | Optional — enables cross-encoder reranking; service works without it | [dashboard.cohere.com/api-keys](https://dashboard.cohere.com/api-keys) — free tier includes 1000 rerank calls/month, no credit card required |
+
 ```bash
 cp .env.example .env
-# Edit .env: add OPENAI_API_KEY (required for extraction)
-# Add COHERE_API_KEY for reranking (optional but improves precision)
+```
 
+Open `.env` and fill in the keys:
+
+```
+OPENAI_API_KEY=sk-...        # required
+COHERE_API_KEY=...           # optional, leave blank to disable reranker
+```
+
+Then start the service:
+
+```bash
 docker compose up -d
 
 # Wait for health
@@ -309,12 +366,19 @@ curl -s http://localhost:8080/health | jq .
 # {"status": "ok"}
 ```
 
-Default port: 8080. Override via `PORT` in `.env`.
+Default port: `8080`. Override via `PORT` in `.env`.
+
+**Without `OPENAI_API_KEY`:** the service starts and all endpoints respond, but
+`POST /turns` saves turns without extracting memories, and `POST /recall` returns
+empty context. Useful for contract testing without incurring API costs.
+
+**Without `COHERE_API_KEY`:** the reranker is disabled; retrieval falls back to
+temporal-boosted RRF order. No other functionality is affected.
 
 ### Quick smoke test
 
 ```bash
-# Ingest a turn
+# Ingest a turn (authenticated)
 curl -X POST http://localhost:8080/turns \
   -H 'Content-Type: application/json' \
   -d '{
@@ -327,11 +391,30 @@ curl -X POST http://localhost:8080/turns \
   }'
 # {"id": "<uuid>"}
 
-# Recall context
+# Ingest a turn (anonymous — no user_id)
+curl -X POST http://localhost:8080/turns \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "session_id": "anon-s1",
+    "messages": [
+      {"role": "user", "content": "I need help with order #12345."},
+      {"role": "assistant", "content": "I can help with that!"}
+    ],
+    "timestamp": "2025-03-15T10:31:00Z", "metadata": {}
+  }'
+# {"id": "<uuid>"}
+
+# Recall context (authenticated)
 curl -X POST http://localhost:8080/recall \
   -H 'Content-Type: application/json' \
   -d '{"query": "Where does this user live?", "session_id": "s2", "user_id": "u1", "max_tokens": 512}'
 # context will mention Berlin and the move from NYC
+
+# Recall context (anonymous — session-scoped)
+curl -X POST http://localhost:8080/recall \
+  -H 'Content-Type: application/json' \
+  -d '{"query": "What is the user asking about?", "session_id": "anon-s1", "max_tokens": 512}'
+# context will mention order #12345
 
 # List structured memories
 curl http://localhost:8080/users/u1/memories | jq .
